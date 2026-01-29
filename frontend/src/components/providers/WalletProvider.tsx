@@ -3,7 +3,6 @@ import { AleoWalletProvider } from '@provablehq/aleo-wallet-adaptor-react';
 import { WalletModalProvider } from '@provablehq/aleo-wallet-adaptor-react-ui';
 import { DecryptPermission } from '@provablehq/aleo-wallet-adaptor-core';
 import { LeoWalletAdapter } from '@provablehq/aleo-wallet-adaptor-leo';
-import { ShieldWalletAdapter } from '@provablehq/aleo-wallet-adaptor-shield';
 
 import '@provablehq/aleo-wallet-adaptor-react-ui/dist/styles.css';
 
@@ -18,27 +17,13 @@ export const WalletProvider: FC<Props> = ({ children }) => {
     const adapters = [];
 
     try {
-      adapters.push(
-        new LeoWalletAdapter({
-          appName: 'ONYX',
-          programIdPermissions: {
-            testnet: [ALEO_CONFIG.programId],
-            mainnet: [ALEO_CONFIG.programId],
-          },
-        })
-      );
+      const leoAdapter = new LeoWalletAdapter({
+        appName: 'ONYX',
+      });
+      console.log('[WalletProvider] LeoWalletAdapter created');
+      adapters.push(leoAdapter);
     } catch (err) {
       console.warn('[WalletProvider] Leo adapter init error:', err);
-    }
-
-    try {
-      adapters.push(
-        new ShieldWalletAdapter({
-          appName: 'ONYX',
-        })
-      );
-    } catch (err) {
-      console.warn('[WalletProvider] Shield adapter init error:', err);
     }
 
     return adapters;
@@ -48,9 +33,14 @@ export const WalletProvider: FC<Props> = ({ children }) => {
     <AleoWalletProvider
       wallets={wallets}
       autoConnect={false}
-      decryptPermission={DecryptPermission.OnChainHistory}
+      decryptPermission={DecryptPermission.AutoDecrypt}
       programs={[ALEO_CONFIG.programId]}
       onError={(error) => {
+        // Ignore connection errors on initial load
+        if (error.name === 'WalletConnectionError') {
+          console.log('[WalletProvider] Connection attempt failed, user can retry');
+          return;
+        }
         console.warn('[WalletProvider] Wallet error:', error);
       }}
     >
