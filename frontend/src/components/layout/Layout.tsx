@@ -1,4 +1,4 @@
-import { FC, ReactNode } from 'react';
+import { FC, ReactNode, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
@@ -26,7 +26,33 @@ const navItems = [
 export const Layout: FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const wallet = useWallet();
-  const { user, isAuthenticated } = useUserStore();
+  const { user, isAuthenticated, logout } = useUserStore();
+  const prevAddressRef = useRef<string | null>(null);
+
+  // Get wallet address
+  const walletAddress = wallet.connected ? (wallet as unknown as { address: string }).address : null;
+
+  // Clear auth when wallet changes or disconnects
+  useEffect(() => {
+    // If wallet disconnected, clear auth
+    if (!wallet.connected && isAuthenticated) {
+      console.log('[Layout] Wallet disconnected, clearing auth');
+      logout();
+      prevAddressRef.current = null;
+      return;
+    }
+
+    // If wallet address changed to a different one, clear auth
+    if (walletAddress && prevAddressRef.current && walletAddress !== prevAddressRef.current) {
+      console.log('[Layout] Wallet address changed from', prevAddressRef.current, 'to', walletAddress);
+      logout();
+    }
+
+    // Update previous address
+    if (walletAddress) {
+      prevAddressRef.current = walletAddress;
+    }
+  }, [wallet.connected, walletAddress, isAuthenticated, logout]);
 
   return (
     <div className="marble-bg relative min-h-screen">

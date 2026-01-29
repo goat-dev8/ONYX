@@ -14,6 +14,9 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
 
+// Trust proxy for Render/Vercel deployments (required for rate limiting)
+app.set('trust proxy', 1);
+
 app.use(cors({
   origin: CORS_ORIGIN,
   credentials: true
@@ -24,7 +27,9 @@ app.use(express.json());
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
-  message: { error: 'Too many requests, please try again later' }
+  message: { error: 'Too many requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 app.use('/auth', authLimiter, authRoutes);

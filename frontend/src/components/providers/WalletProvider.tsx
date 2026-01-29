@@ -3,6 +3,7 @@ import { AleoWalletProvider } from '@provablehq/aleo-wallet-adaptor-react';
 import { WalletModalProvider } from '@provablehq/aleo-wallet-adaptor-react-ui';
 import { DecryptPermission } from '@provablehq/aleo-wallet-adaptor-core';
 import { LeoWalletAdapter } from '@provablehq/aleo-wallet-adaptor-leo';
+import { ShieldWalletAdapter } from '@provablehq/aleo-wallet-adaptor-shield';
 
 import '@provablehq/aleo-wallet-adaptor-react-ui/dist/styles.css';
 
@@ -24,6 +25,16 @@ export const WalletProvider: FC<Props> = ({ children }) => {
       adapters.push(leoAdapter);
     } catch (err) {
       console.warn('[WalletProvider] Leo adapter init error:', err);
+    }
+
+    try {
+      const shieldAdapter = new ShieldWalletAdapter({
+        appName: 'ONYX',
+      });
+      console.log('[WalletProvider] ShieldWalletAdapter created');
+      adapters.push(shieldAdapter);
+    } catch (err) {
+      console.warn('[WalletProvider] Shield adapter init error:', err);
     }
 
     return adapters;
