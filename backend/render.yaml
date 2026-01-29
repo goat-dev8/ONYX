@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: onyx-api
+    runtime: node
+    region: oregon
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PROVABLE_API_BASE
+        value: https://api.explorer.provable.com/v1
+      - key: ALEO_NETWORK
+        value: testnet
+      - key: PROGRAM_ID
+        value: onyx_v1.aleo
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: onyx-data
+      mountPath: /var/data
+      sizeGB: 1
+    healthCheckPath: /health
+    autoDeploy: true
