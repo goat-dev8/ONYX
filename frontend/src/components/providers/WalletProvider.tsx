@@ -47,9 +47,12 @@ export const WalletProvider: FC<Props> = ({ children }) => {
   return (
     <AleoWalletProvider
       wallets={wallets}
-      autoConnect={true}
+      autoConnect={false}
       decryptPermission={DecryptPermission.OnChainHistory}
       programs={[ALEO_CONFIG.programId]}
+      onError={(error) => {
+        console.warn('[WalletProvider] Wallet error:', error);
+      }}
     >
       <WalletModalProvider>
         {children}
