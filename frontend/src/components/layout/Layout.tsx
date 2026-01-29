@@ -23,23 +23,53 @@ const navItems = [
   { path: '/scan', label: 'Scan', icon: ScanIcon },
 ];
 
+// Clear wallet adapter cached state
+const clearWalletCache = () => {
+  try {
+    // Clear wallet adapter localStorage keys
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.includes('wallet') || key.includes('Wallet') || key.includes('aleo'))) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => {
+      if (key !== 'user-storage') { // Keep our own user store
+        localStorage.removeItem(key);
+      }
+    });
+    console.log('[Layout] Cleared wallet cache keys:', keysToRemove);
+  } catch (e) {
+    console.warn('[Layout] Error clearing wallet cache:', e);
+  }
+};
+
 export const Layout: FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const wallet = useWallet();
   const { user, isAuthenticated, logout } = useUserStore();
   const prevAddressRef = useRef<string | null>(null);
+  const wasConnectedRef = useRef<boolean>(false);
 
   // Get wallet address
   const walletAddress = wallet.connected ? (wallet as unknown as { address: string }).address : null;
 
   // Clear auth when wallet changes or disconnects
   useEffect(() => {
-    // If wallet disconnected, clear auth
-    if (!wallet.connected && isAuthenticated) {
-      console.log('[Layout] Wallet disconnected, clearing auth');
+    // If was connected but now disconnected, clear everything
+    if (wasConnectedRef.current && !wallet.connected) {
+      console.log('[Layout] Wallet disconnected, clearing auth and cache');
       logout();
+      clearWalletCache();
       prevAddressRef.current = null;
+      wasConnectedRef.current = false;
       return;
+    }
+
+    // Track connection state
+    if (wallet.connected) {
+      wasConnectedRef.current = true;
     }
 
     // If wallet address changed to a different one, clear auth
