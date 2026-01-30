@@ -15,7 +15,7 @@ import { Button, Card, Modal, Input, StatusBadge } from '../components/ui/Compon
 import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
 import { api } from '../lib/api';
-import { formatAddress, checkStolenStatus } from '../lib/aleo';
+import { formatAddress, checkStolenStatus, saveLocalStolenTag } from '../lib/aleo';
 import type { Artifact } from '../lib/types';
 
 export const Vault: FC = () => {
@@ -176,6 +176,11 @@ export const Vault: FC = () => {
       toast.success('Item reported as stolen on-chain!');
       setStolenModal(false);
       
+      // CRITICAL: Save to localStorage FIRST for persistence
+      // This ensures stolen status survives even if backend resets
+      saveLocalStolenTag(selectedArtifact.tagHash, txId, walletAddress || undefined);
+      console.log('[Vault] Saved stolen tag to localStorage');
+      
       // Update backend registry - this is important for tracking!
       try {
         await api.reportStolen({
@@ -185,7 +190,7 @@ export const Vault: FC = () => {
         console.log('[Vault] Backend stolen registry updated');
       } catch (err) {
         console.error('[Vault] Backend stolen update failed:', err);
-        // Still show success since on-chain worked
+        // Still show success since on-chain worked AND we saved locally
       }
       
       // Immediately update local state to show stolen status
