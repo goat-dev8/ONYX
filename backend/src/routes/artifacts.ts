@@ -41,6 +41,9 @@ router.post('/mint', authMiddleware, async (req: AuthRequest, res: Response): Pr
       return;
     }
 
+    const crypto = await import('crypto');
+    const ownerHash = crypto.createHash('sha256').update(initialOwner).digest('hex');
+
     const artifact = {
       tagHash,
       brandAddress,
@@ -50,7 +53,7 @@ router.post('/mint', authMiddleware, async (req: AuthRequest, res: Response): Pr
       mintedAt: new Date().toISOString(),
       stolen: false,
       lastUpdateTxId: txId,
-      ownerAddress: initialOwner
+      ownerHash
     };
 
     db.setArtifact(artifact);
@@ -91,7 +94,8 @@ router.post('/transfer', authMiddleware, async (req: AuthRequest, res: Response)
       return;
     }
 
-    artifact.ownerAddress = to;
+    const crypto = await import('crypto');
+    artifact.ownerHash = crypto.createHash('sha256').update(to).digest('hex');
     artifact.lastUpdateTxId = txId;
     db.setArtifact(artifact);
 

@@ -9,11 +9,17 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  optimizeDeps: {
+    esbuildOptions: {
+      target: 'esnext',
+    },
+  },
   server: {
     port: 5173,
     host: true,
   },
   build: {
+    target: 'esnext',
     outDir: 'dist',
     sourcemap: true,
   },

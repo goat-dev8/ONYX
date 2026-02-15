@@ -72,3 +72,23 @@ export async function getMappingValue(
     return null;
   }
 }
+
+// Check if a brand is authorized on the current contract version
+export async function isBrandAuthorized(
+  programId: string,
+  brandAddress: string
+): Promise<boolean> {
+  try {
+    // v3 uses registered_brands, v2 uses authorized_brands
+    const mappingNames = ['registered_brands', 'authorized_brands'];
+    for (const mappingName of mappingNames) {
+      const value = await getMappingValue(programId, mappingName, brandAddress);
+      if (value && String(value).includes('true')) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}

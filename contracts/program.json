@@ -1,6 +1,20 @@
 {
-  "program": "onyx_v1.aleo",
-  "version": "0.1.0",
-  "description": "Private product passport protocol for luxury goods authentication",
-  "license": "MIT"
+  "program": "onyxpriv_v3.aleo",
+  "version": "3.0.0",
+  "description": "ONYX - Private Product Passports for Luxury Goods on Aleo",
+  "license": "MIT",
+  "leo": "3.4.0",
+  "dependencies": [
+    {
+      "name": "credits.aleo",
+      "location": "network",
+      "path": null
+    },
+    {
+      "name": "test_usdcx_stablecoin.aleo",
+      "location": "network",
+      "path": null
+    }
+  ],
+  "dev_dependencies": null
 }

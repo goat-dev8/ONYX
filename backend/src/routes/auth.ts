@@ -47,8 +47,12 @@ router.post('/verify', (req: Request, res: Response): void => {
       return;
     }
 
-    if (!signature || signature.length < 10) {
-      res.status(401).json({ error: 'Invalid signature' });
+    // Validate signature format: Aleo wallet signatures are typically
+    // base64-encoded (64+ chars) or hex-encoded (128+ chars).
+    // Full cryptographic verification requires @provablehq/sdk on the server.
+    // The nonce mechanism already prevents replay attacks.
+    if (!signature || signature.length < 64) {
+      res.status(401).json({ error: 'Invalid signature format' });
       return;
     }
 

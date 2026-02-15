@@ -13,7 +13,7 @@ export interface Artifact {
   mintedAt: string;
   stolen: boolean;
   lastUpdateTxId: string;
-  ownerAddress?: string;
+  ownerHash?: string; // SHA-256 hash of owner address (never store plaintext)
 }
 
 export interface ResaleProof {

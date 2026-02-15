@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { Database, Brand, Artifact, ResaleProof, EventLog } from '../types';
 
 const DB_PATH = process.env.DB_PATH || './data/db.json';
@@ -144,9 +145,14 @@ export class DatabaseService {
     );
   }
 
+  private hashAddress(address: string): string {
+    return crypto.createHash('sha256').update(address).digest('hex');
+  }
+
   getArtifactsByOwner(ownerAddress: string): Artifact[] {
+    const hash = this.hashAddress(ownerAddress);
     return Object.values(this.data.artifacts).filter(
-      a => a.ownerAddress === ownerAddress
+      a => a.ownerHash === hash
     );
   }
 

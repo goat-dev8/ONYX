@@ -53,8 +53,11 @@ export const Prove: FC = () => {
     : null;
 
   useEffect(() => {
-    if (wallet.connected && !isAuthenticated && mode === 'generate') {
-      handleAuth();
+    if (wallet.connected && mode === 'generate') {
+      const token = localStorage.getItem('onyx_token');
+      if (!isAuthenticated || !token) {
+        handleAuth();
+      }
     }
   }, [wallet.connected, mode]);
 

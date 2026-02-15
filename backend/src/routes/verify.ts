@@ -46,7 +46,7 @@ router.post('/proof', async (req: Request, res: Response): Promise<void> => {
     const proof = {
       token,
       tagHash,
-      ownerAddress: artifact.ownerAddress || '',
+      ownerAddress: artifact.ownerHash || '',
       txId,
       createdAt: new Date().toISOString()
     };
@@ -80,16 +80,16 @@ router.get('/token/:token', (req: Request, res: Response): void => {
     const proof = db.getProofByToken(token);
 
     if (!proof) {
-      res.json({ found: false });
+      res.json({ valid: false, error: 'Proof not found' });
       return;
     }
 
     const artifact = db.getArtifact(proof.tagHash);
 
     res.json({
-      found: true,
-      proof,
+      valid: true,
       artifact: artifact ? {
+        tagHash: proof.tagHash,
         brandAddress: artifact.brandAddress,
         modelId: artifact.modelId,
         stolen: artifact.stolen

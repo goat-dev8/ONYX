@@ -1,4 +1,5 @@
 export interface Artifact {
+  id?: string;
   tagHash: string;
   brandAddress: string;
   modelId: number;
@@ -8,6 +9,7 @@ export interface Artifact {
   stolen: boolean;
   lastUpdateTxId: string;
   ownerAddress?: string;
+  currentOwner?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   _raw?: any;
   _fromWallet?: boolean;

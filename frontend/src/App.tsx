@@ -10,6 +10,7 @@ const Mint = lazy(() => import('./pages/Mint').then((m) => ({ default: m.Mint })
 const Transfer = lazy(() => import('./pages/Transfer').then((m) => ({ default: m.Transfer })));
 const Stolen = lazy(() => import('./pages/Stolen').then((m) => ({ default: m.Stolen })));
 const Prove = lazy(() => import('./pages/Prove').then((m) => ({ default: m.Prove })));
+const Escrow = lazy(() => import('./pages/Escrow').then((m) => ({ default: m.Escrow })));
 
 const PageLoader: FC = () => (
   <div className="flex min-h-[60vh] items-center justify-center">
@@ -30,6 +31,7 @@ export const App: FC = () => {
             <Route path="/transfer" element={<Transfer />} />
             <Route path="/stolen" element={<Stolen />} />
             <Route path="/prove" element={<Prove />} />
+            <Route path="/escrow" element={<Escrow />} />
           </Routes>
         </Suspense>
       </Layout>

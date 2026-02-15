@@ -64,22 +64,4 @@ export const useUserStore = create<UserState>()(
   )
 );
 
-interface AppState {
-  isVaultOpen: boolean;
-  selectedArtifact: Artifact | null;
-  scanResult: { tagHash: string; status: string } | null;
-  
-  setVaultOpen: (open: boolean) => void;
-  setSelectedArtifact: (artifact: Artifact | null) => void;
-  setScanResult: (result: { tagHash: string; status: string } | null) => void;
-}
 
-export const useAppStore = create<AppState>((set) => ({
-  isVaultOpen: false,
-  selectedArtifact: null,
-  scanResult: null,
-
-  setVaultOpen: (isVaultOpen) => set({ isVaultOpen }),
-  setSelectedArtifact: (selectedArtifact) => set({ selectedArtifact }),
-  setScanResult: (scanResult) => set({ scanResult }),
-}));

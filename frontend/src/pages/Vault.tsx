@@ -40,8 +40,11 @@ export const Vault: FC = () => {
     : null;
 
   useEffect(() => {
-    if (wallet.connected && !isAuthenticated) {
-      handleAuth();
+    if (wallet.connected) {
+      const token = localStorage.getItem('onyx_token');
+      if (!isAuthenticated || !token) {
+        handleAuth();
+      }
     }
   }, [wallet.connected]);
 
@@ -75,35 +78,56 @@ export const Vault: FC = () => {
           owner?: string;
           _plaintext?: string;
           _raw?: { id?: string; ciphertext?: string };
+          _commitment?: string;
+          _blockHeight?: number;
           id?: string;
           ciphertext?: string;
         }>).map((record, idx) => {
-          const data = record.data || {};
-          // Parse field values (remove .private suffix and field suffix)
+          // Strip visibility/type suffixes from Aleo values
           const parseField = (val: string | undefined) => {
             if (!val) return '';
-            return val.replace('.private', '').replace('.public', '').replace('field', '');
+            return val.replace(/\.private$/, '').replace(/\.public$/, '').replace(/field$/, '').trim();
           };
           const parseAddress = (val: string | undefined) => {
             if (!val) return '';
-            return val.replace('.private', '').replace('.public', '');
+            return val.replace(/\.private$/, '').replace(/\.public$/, '').trim();
           };
           const parseU64 = (val: string | undefined) => {
             if (!val) return 0;
-            return parseInt(val.replace('.private', '').replace('.public', '').replace('u64', ''), 10);
+            const cleaned = val.replace(/\.private$/, '').replace(/\.public$/, '').replace(/u64$/, '').trim();
+            return parseInt(cleaned, 10) || 0;
           };
+
+          // Data should already be enriched by fetchRecords (which tries wallet data,
+          // inline decrypt, and Aleo API decrypt fallback)
+          const data = (record.data || {}) as Record<string, string>;
+
+          const tagHashRaw = data.tag_hash || '';
+          const serialHashRaw = data.serial_hash || '';
+          const modelIdRaw = data.model_id || '';
+          const brandRaw = data.brand || '';
+          const ownerRaw = record.owner || parseAddress(data.owner || '');
+
+          console.log(`[Vault] Record ${idx} fields:`, { tagHashRaw, serialHashRaw, modelIdRaw, brandRaw, ownerRaw,
+            commitment: record._commitment?.substring(0, 20),
+            hasPlaintext: !!record._plaintext,
+            dataKeys: Object.keys(data).filter(k => !!data[k]),
+          });
+          
+          // Use commitment as a stable unique ID since tagHash may be empty
+          const stableId = record._commitment || record.id || `wallet_${idx}_${Date.now()}`;
           
           return {
-            id: record.id || `wallet_${idx}_${Date.now()}`,
-            tagHash: parseField(data.tag_hash),
-            serialHash: parseField(data.serial_hash),
-            modelId: parseU64(data.model_id),
-            brandAddress: parseAddress(data.brand),
-            currentOwner: parseAddress(record.owner),
-            ownerAddress: parseAddress(record.owner),
+            id: stableId,
+            tagHash: parseField(tagHashRaw),
+            serialHash: parseField(serialHashRaw),
+            modelId: parseU64(modelIdRaw),
+            brandAddress: parseAddress(brandRaw),
+            currentOwner: parseAddress(ownerRaw),
+            ownerAddress: parseAddress(ownerRaw),
             status: 'active' as const,
             mintedAt: new Date().toISOString(),
-            stolen: false, // Will be updated below
+            stolen: false,
             createdTxId: '',
             lastUpdateTxId: '',
             _fromWallet: true,
@@ -111,10 +135,43 @@ export const Vault: FC = () => {
             _raw: record._raw || { id: record.id, ciphertext: record.ciphertext },
           };
         });
+
+        // If wallet records have empty data, try to enrich from backend
+        const needsEnrichment = walletArtifacts.some(a => !a.tagHash);
+        if (needsEnrichment) {
+          console.log('[Vault] Wallet records have empty fields, trying backend enrichment...');
+          try {
+            const response = await api.getMyArtifacts();
+            const backendArtifacts = response.artifacts as unknown as Artifact[];
+            if (backendArtifacts && backendArtifacts.length > 0) {
+              console.log('[Vault] Backend has', backendArtifacts.length, 'artifacts, merging...');
+              // Merge backend data into wallet artifacts by index order
+              // (both lists are ordered by mint time, so they should align)
+              walletArtifacts.forEach((wa, i) => {
+                if (!wa.tagHash && backendArtifacts[i]) {
+                  const ba = backendArtifacts[i];
+                  wa.tagHash = ba.tagHash || wa.tagHash;
+                  wa.serialHash = ba.serialHash || wa.serialHash;
+                  wa.modelId = ba.modelId || wa.modelId;
+                  wa.brandAddress = ba.brandAddress || wa.brandAddress;
+                  wa.createdTxId = ba.createdTxId || '';
+                  wa.mintedAt = ba.mintedAt || wa.mintedAt;
+                  console.log(`[Vault] Enriched record ${i} from backend:`, { tagHash: wa.tagHash, modelId: wa.modelId });
+                }
+              });
+            }
+          } catch (err) {
+            console.log('[Vault] Backend enrichment failed (non-critical):', err);
+          }
+        }
         
         // Check stolen status for each artifact from on-chain mapping
+        // Skip check if tagHash is empty to avoid 404 errors
         const artifactsWithStolenStatus = await Promise.all(
           walletArtifacts.map(async (artifact) => {
+            if (!artifact.tagHash) {
+              return { ...artifact, stolen: false };
+            }
             const isStolen = await checkStolenStatus(artifact.tagHash);
             return { ...artifact, stolen: isStolen };
           })
@@ -313,7 +370,7 @@ export const Vault: FC = () => {
           <AnimatePresence>
             {artifacts.map((artifact, index) => (
               <motion.div
-                key={artifact.tagHash}
+                key={artifact.tagHash || artifact.id || `artifact_${index}`}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.9 }}

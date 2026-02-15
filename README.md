@@ -101,56 +101,80 @@
 ### Deployed Contract
 | Property | Value |
 |----------|-------|
-| **Program ID** | `onyxpriv_v1.aleo` |
-| **Network** | Aleo Testnet Beta |
-| **Deployment Block** | 14,092,647 |
+| **Program ID** | `onyxpriv_v2.aleo` |
+| **Network** | Aleo Testnet |
+| **Credits Integration** | `credits.aleo` (escrow + bounty) |
 
 ### On-Chain Data Structure
 
 ```leo
-program onyxpriv_v1.aleo {
-    // Private record - only owner can decrypt
+import credits.aleo;
+
+program onyxpriv_v2.aleo {
+    // Private records
     record AssetArtifact {
-        owner: address,        // Current owner (private)
-        brand: address,        // Minting brand (private)
-        tag_hash: field,       // NFC/RFID chip hash (private)
-        serial_hash: field,    // Serial number hash (private)
-        model_id: u64,         // Model identifier (private)
-        nonce_seed: field,     // ZK proof nonce (private)
+        owner: address,
+        brand: address,
+        tag_hash: field,
+        serial_hash: field,
+        model_id: u64,
+        nonce_seed: field
     }
 
-    // Public mappings - anyone can read
-    mapping stolen_tags: field => bool;   // Stolen item registry
-    mapping minted_tags: field => bool;   // Prevents duplicate mints
+    record EscrowReceipt {
+        owner: address,
+        escrow_id: field,
+        tag_hash: field,
+        amount: u64,
+        seller: address
+    }
+
+    // Public mappings
+    mapping admin: u8 => address;               // deployer
+    mapping authorized_brands: address => bool;  // brand whitelist
+    mapping tag_brand: field => address;         // registry
+    mapping tag_is_stolen: field => bool;        // stolen flag
+    mapping escrow_deposits: field => u64;       // escrow balances
+    mapping bounty_amount: field => u64;         // recovery bounties
+    mapping proof_registry: field => field;      // on-chain proofs
+    // ... and more
 }
 ```
 
-### Contract Functions
+### Contract Transitions
 
-| Function | Description | Privacy |
-|----------|-------------|---------|
-| `mint_artifact` | Create new product passport | Private record output |
-| `transfer_artifact` | Transfer ownership | Consumes & creates records |
-| `report_stolen` | Mark item as stolen | Updates public mapping |
-| `prove_for_resale` | Generate ownership proof | Returns ZK proof token |
+| Transition | Description | Privacy | credits.aleo |
+|-----------|-------------|---------|-------|
+| `authorize_brand` | Admin whitelists a brand | Public mapping | — |
+| `revoke_brand` | Admin removes brand | Public mapping | — |
+| `mint_artifact` | Create product passport | Private record | — |
+| `transfer_artifact` | Transfer ownership (blocks stolen) | Consumes/creates records | — |
+| `report_stolen` | Mark item stolen | Public mapping | — |
+| `prove_for_resale` | Generate ZK proof (on-chain) | Proof stored in mapping | — |
+| `create_escrow` | Buyer deposits credits | EscrowReceipt record | `transfer_private_to_public` |
+| `release_escrow` | Pay seller after verification | Consumes receipt | `transfer_public` |
+| `refund_escrow` | Reclaim credits after timeout | Consumes receipt | `transfer_public` |
+| `report_stolen_with_bounty` | Report stolen + deposit bounty | Public mapping | `transfer_private_to_public` |
 
 ### Privacy Model
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                     ALEO PRIVACY MODEL                         │
+│                     ALEO PRIVACY MODEL (v2)                    │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
 │  PRIVATE (Encrypted)              PUBLIC (Visible)             │
 │  ──────────────────              ────────────────              │
-│  • Owner address                 • stolen_tags mapping         │
-│  • Brand address                 • minted_tags mapping         │
-│  • Tag hash                      • Transaction exists          │
-│  • Serial hash                                                 │
-│  • Model ID                                                    │
+│  • Owner address                 • tag_is_stolen mapping       │
+│  • Brand address                 • authorized_brands mapping   │
+│  • Tag hash                      • escrow_deposits mapping     │
+│  • Serial hash                   • bounty_amount mapping       │
+│  • Model ID                      • proof_registry mapping      │
+│  • Escrow receipt details        • Transaction exists          │
 │                                                                │
-│  Only the record OWNER can decrypt and view private data       │
-│  Anyone can query public mappings to check stolen status       │
+│  Backend stores SHA-256 hashed addresses — never plaintext     │
+│  Only the record OWNER can decrypt private data                │
+│  credits.aleo handles escrow funds atomically                  │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -183,6 +207,13 @@ Landing page with hero section, feature cards, and call-to-action.
 - Results: ✅ Authentic / 🚨 Stolen / ❓ Unknown
 - Shows brand, model, and ownership info
 
+### 🔒 Escrow (`/escrow`)
+**Credit escrow for paid verification**
+- Create escrow: deposit credits for secure purchase
+- Release: pay seller after item verification
+- Refund: reclaim credits after ~1000 block timeout
+- Powered by `credits.aleo` integration
+
 ---
 
 ## 🔗 Wallet Integration
@@ -201,14 +232,14 @@ const signature = await wallet.signMessage(messageBytes);
 
 // Execute on-chain transaction
 const txId = await wallet.executeTransaction({
-  program: 'onyxpriv_v1.aleo',
+  program: 'onyxpriv_v2.aleo',
   function: 'mint_artifact',
   inputs: [tagHash, serialHash, modelId, owner],
   fee: 1000000
 });
 
 // Fetch private records
-const records = await wallet.requestRecords('onyxpriv_v1.aleo');
+const records = await wallet.requestRecords('onyxpriv_v2.aleo');
 ```
 
 ---
@@ -248,7 +279,7 @@ CORS_ORIGIN=http://localhost:5173
 **Frontend** (`frontend/.env`):
 ```env
 VITE_API_BASE_URL=http://localhost:3001
-VITE_ALEO_PROGRAM_ID=onyxpriv_v1.aleo
+VITE_ALEO_PROGRAM_ID=onyxpriv_v2.aleo
 VITE_ALEO_NETWORK=testnet
 ```
 
@@ -286,7 +317,7 @@ Visit `http://localhost:5173` and connect your Leo Wallet!
 3. **Environment Variables**
    ```
    VITE_API_BASE_URL=https://your-backend.onrender.com
-   VITE_ALEO_PROGRAM_ID=onyxpriv_v1.aleo
+   VITE_ALEO_PROGRAM_ID=onyxpriv_v2.aleo
    VITE_ALEO_NETWORK=testnet
    ```
 
@@ -355,14 +386,21 @@ ONYX/
 
 ---
 
-## 🧪 Tested Transactions
+## 🧪 Testing
 
-| Action | TX ID | Block | Status |
-|--------|-------|-------|--------|
-| Deploy Contract | `at13s383gnmq...` | 14,092,647 | ✅ Accepted |
-| Mint Artifact | `at1fth7q...` | 14,092,896 | ✅ Accepted |
-| Transfer | `at1qtxj7g6uz...` | 14,093,999 | ✅ Accepted |
-| Report Stolen | `at19ksdpv79p...` | 14,094,604 | ✅ Accepted |
+See [contracts/tests/TEST_PLAN.md](contracts/tests/TEST_PLAN.md) for the full 22-case test plan covering:
+- Admin authorization (3 tests)
+- Minting with brand checks (3 tests)
+- Transfer with stolen blocking (3 tests)
+- Report stolen (2 tests)
+- Prove for resale with on-chain storage (3 tests)
+- Escrow lifecycle (6 tests)
+- Bounty system (2 tests)
+
+```bash
+cd contracts
+bash tests/run_tests.sh
+```
 
 ---
 
@@ -373,20 +411,27 @@ ONYX/
 - **CORS Protection**: Restricted to allowed origins
 - **ZK Proofs**: Ownership verified without revealing identity
 - **Rate Limiting**: Prevents abuse of authentication endpoints
+- **Hashed Addresses**: Backend stores SHA-256 hashes, never plaintext addresses
+- **Signature Validation**: Requires ≥64 char Aleo signatures
+- **Escrow Safety**: credits.aleo atomic deposits with timeout-based refunds
 
 ---
 
 ## 🛣️ Roadmap
 
-- [x] Smart contract deployment
+- [x] Smart contract v2 with credits.aleo integration
+- [x] On-chain brand authorization
 - [x] Wallet integration (Leo + Shield)
 - [x] Mint, Transfer, Report Stolen
-- [x] QR code scanning
+- [x] QR code scanning + download
 - [x] Stolen status registry
+- [x] Escrow system (create/release/refund)
+- [x] Bounty system for stolen item recovery
+- [x] On-chain proof registry for resale verification
+- [x] SHA-256 hashed address storage
 - [ ] Mobile app (React Native)
 - [ ] NFC chip integration
 - [ ] Brand dashboard analytics
-- [ ] Multi-chain support
 
 ---
 

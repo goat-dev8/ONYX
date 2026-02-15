@@ -15,6 +15,18 @@ function authHeaders(): HeadersInit {
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    // Auto-clear stale auth on 401 — forces re-authentication
+    if (response.status === 401) {
+      localStorage.removeItem('onyx_token');
+      const storeRaw = localStorage.getItem('onyx-user-storage');
+      if (storeRaw) {
+        try {
+          const store = JSON.parse(storeRaw);
+          store.state = { ...store.state, user: null, isAuthenticated: false, isBrand: false };
+          localStorage.setItem('onyx-user-storage', JSON.stringify(store));
+        } catch { /* ignore */ }
+      }
+    }
     throw new Error(error.error || `Request failed: ${response.status}`);
   }
   return response.json();
@@ -133,6 +145,11 @@ export const api = {
       reason?: string;
       artifact?: Record<string, unknown>;
     }>(response);
+  },
+
+  async checkBrandChainStatus(address: string) {
+    const response = await fetch(`${API_BASE_URL}/brands/chain-status/${encodeURIComponent(address)}`);
+    return handleResponse<{ address: string; authorized: boolean; programId: string }>(response);
   },
 
   async health() {

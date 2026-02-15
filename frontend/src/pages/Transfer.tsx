@@ -40,8 +40,11 @@ export const Transfer: FC = () => {
     : null;
 
   useEffect(() => {
-    if (wallet.connected && !isAuthenticated) {
-      handleAuth();
+    if (wallet.connected) {
+      const token = localStorage.getItem('onyx_token');
+      if (!isAuthenticated || !token) {
+        handleAuth();
+      }
     }
   }, [wallet.connected]);
 

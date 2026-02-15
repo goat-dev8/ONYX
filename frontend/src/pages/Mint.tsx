@@ -2,7 +2,7 @@ import { FC, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import { useWalletModal } from '@provablehq/aleo-wallet-adaptor-react-ui';
-import { QRCodeSVG } from 'qrcode.react';
+import { QRCodeCanvas } from 'qrcode.react';
 import toast from 'react-hot-toast';
 import {
   TagIcon,
@@ -19,7 +19,7 @@ import { api } from '../lib/api';
 export const Mint: FC = () => {
   const wallet = useWallet();
   const { setVisible: openWalletModal } = useWalletModal();
-  const { authenticate, executeMint, loading } = useOnyxWallet();
+  const { authenticate, executeMint, executeRegisterBrand, executeAuthorizeBrand, loading } = useOnyxWallet();
   const { user, isAuthenticated, isBrand, setUser } = useUserStore();
 
   const [modelId, setModelId] = useState('');
@@ -37,10 +37,32 @@ export const Mint: FC = () => {
     : null;
 
   useEffect(() => {
-    if (wallet.connected && !isAuthenticated) {
-      handleAuth();
+    if (wallet.connected) {
+      const token = localStorage.getItem('onyx_token');
+      if (!isAuthenticated || !token) {
+        handleAuth();
+      } else if (!isBrand) {
+        // Already authenticated but not marked as brand — check backend
+        checkExistingBrand();
+      }
     }
-  }, [wallet.connected]);
+  }, [wallet.connected, isAuthenticated]);
+
+  const checkExistingBrand = async () => {
+    try {
+      const { brand } = await api.getMyBrand();
+      if (brand) {
+        setUser({
+          ...user!,
+          role: 'brand',
+          brand: { address: brand.address, displayName: brand.displayName },
+          brandName: brand.displayName,
+        });
+      }
+    } catch {
+      // Not a brand yet — that's fine
+    }
+  };
 
   const handleAuth = async () => {
     await authenticate();
@@ -153,6 +175,21 @@ export const Mint: FC = () => {
       try {
         const result = await api.registerBrand(brandName.trim());
         if (result.success) {
+          // Register this brand on-chain (v3: self-registration, any user can call)
+          toast.loading('Registering brand on-chain...', { id: 'brand-chain' });
+          try {
+            await executeRegisterBrand();
+          } catch (chainErr) {
+            console.warn('[Mint] On-chain brand registration failed:', chainErr);
+            // Try v2 fallback (admin-only authorize_brand)
+            try {
+              await executeAuthorizeBrand(walletAddress!);
+            } catch (v2Err) {
+              console.warn('[Mint] v2 authorize_brand also failed (expected for non-admin):', v2Err);
+            }
+          }
+          toast.dismiss('brand-chain');
+
           // Update user state to reflect brand status
           setUser({
             ...user!,
@@ -164,7 +201,32 @@ export const Mint: FC = () => {
         }
       } catch (err) {
         console.error('Brand registration error:', err);
-        toast.error(err instanceof Error ? err.message : 'Registration failed');
+        const msg = err instanceof Error ? err.message : 'Registration failed';
+        if (msg.includes('already registered')) {
+          // Brand exists in backend — just load it
+          try {
+            const { brand } = await api.getMyBrand();
+            if (brand) {
+              setUser({
+                ...user!,
+                role: 'brand',
+                brand: { address: brand.address, displayName: brand.displayName },
+                brandName: brand.displayName,
+              });
+              toast.success(`Welcome back, ${brand.displayName}!`);
+            }
+          } catch {
+            toast.error('Could not load existing brand');
+          }
+        } else if (msg.includes('Invalid or expired token') || msg.includes('Missing or invalid')) {
+          toast.error('Session expired — re-authenticating...');
+          const ok = await authenticate();
+          if (ok) {
+            toast('Please try registering again.');
+          }
+        } else {
+          toast.error(msg);
+        }
       } finally {
         setRegistering(false);
       }
@@ -375,7 +437,8 @@ export const Mint: FC = () => {
       >
         <div className="text-center">
           <div className="mx-auto mb-4 inline-block rounded-xl border border-white/10 bg-white p-4">
-            <QRCodeSVG
+            <QRCodeCanvas
+              id="onyx-qr-canvas"
               value={`${window.location.origin}/scan?tagHash=${mintedResult?.tagHash}`}
               size={200}
               level="H"
@@ -387,10 +450,10 @@ export const Mint: FC = () => {
           </p>
           <Button
             onClick={() => {
-              const canvas = document.querySelector('canvas');
+              const canvas = document.getElementById('onyx-qr-canvas') as HTMLCanvasElement;
               if (canvas) {
                 const link = document.createElement('a');
-                link.download = `qr-${mintedResult?.tagHash}.png`;
+                link.download = `onyx-qr-${mintedResult?.tagHash}.png`;
                 link.href = canvas.toDataURL('image/png');
                 link.click();
               }

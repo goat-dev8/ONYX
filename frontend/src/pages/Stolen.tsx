@@ -9,7 +9,7 @@ import {
   CheckCircleIcon,
   LoadingSpinner,
 } from '../components/icons/Icons';
-import { Button, Card, StatusBadge } from '../components/ui/Components';
+import { Button, Card, Input, StatusBadge } from '../components/ui/Components';
 import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
 import { api } from '../lib/api';
@@ -19,12 +19,13 @@ import type { Artifact } from '../lib/types';
 export const Stolen: FC = () => {
   const wallet = useWallet();
   const { setVisible: openWalletModal } = useWalletModal();
-  const { authenticate, executeReportStolen, fetchRecords, loading } = useOnyxWallet();
+  const { authenticate, executeReportStolen, executeReportStolenWithBounty, fetchRecords, loading } = useOnyxWallet();
   const { isAuthenticated, artifacts, setArtifacts } = useUserStore();
 
   const [localLoading, setLocalLoading] = useState(false);
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
   const [confirmModal, setConfirmModal] = useState(false);
+  const [bountyAmount, setBountyAmount] = useState('');
   const [reportComplete, setReportComplete] = useState<{
     tagHash: string;
     txId: string;
@@ -35,8 +36,11 @@ export const Stolen: FC = () => {
     : null;
 
   useEffect(() => {
-    if (wallet.connected && !isAuthenticated) {
-      handleAuth();
+    if (wallet.connected) {
+      const token = localStorage.getItem('onyx_token');
+      if (!isAuthenticated || !token) {
+        handleAuth();
+      }
     }
   }, [wallet.connected]);
 
@@ -84,7 +88,16 @@ export const Stolen: FC = () => {
   const handleReport = async () => {
     if (!selectedArtifact) return;
 
-    const txId = await executeReportStolen(selectedArtifact);
+    let txId: string | null = null;
+    const bountyAleo = bountyAmount ? parseFloat(bountyAmount) : 0;
+    const bountyValue = Math.round(bountyAleo * 1_000_000); // Convert ALEO to microcredits
+
+    if (bountyValue > 0) {
+      txId = await executeReportStolenWithBounty(selectedArtifact, bountyValue);
+    } else {
+      txId = await executeReportStolen(selectedArtifact);
+    }
+
     if (txId) {
       try {
         await api.reportStolen({
@@ -105,6 +118,7 @@ export const Stolen: FC = () => {
   const resetReport = () => {
     setReportComplete(null);
     setSelectedArtifact(null);
+    setBountyAmount('');
     loadArtifacts();
   };
 
@@ -360,6 +374,19 @@ export const Stolen: FC = () => {
               </p>
               <p className="font-mono text-xs text-white/40">
                 {formatAddress(selectedArtifact?.tagHash || '', 10)}
+              </p>
+            </div>
+
+            <div className="mb-6">
+              <Input
+                label="Recovery Bounty (optional, ALEO)"
+                placeholder="e.g. 1 — incentivize recovery"
+                value={bountyAmount}
+                onChange={setBountyAmount}
+                type="number"
+              />
+              <p className="mt-2 text-xs text-white/30">
+                Deposit Aleo credits as a bounty for item recovery. Leave empty for a standard report.
               </p>
             </div>
 

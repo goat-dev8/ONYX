@@ -189,52 +189,6 @@ export const StatusBadge: FC<StatusBadgeProps> = ({ status }) => {
   );
 };
 
-interface VaultDoorProps {
-  isOpen: boolean;
-  onComplete?: () => void;
-}
-
-export const VaultDoor: FC<VaultDoorProps> = ({ isOpen, onComplete }) => {
-  const [animating, setAnimating] = useState(false);
-
-  return (
-    <div className="perspective-1000 relative h-64 w-full">
-      <motion.div
-        className="preserve-3d absolute inset-0 origin-left"
-        animate={{
-          rotateY: isOpen ? -95 : 0,
-        }}
-        transition={{
-          duration: 1,
-          ease: [0.16, 1, 0.3, 1],
-        }}
-        onAnimationStart={() => setAnimating(true)}
-        onAnimationComplete={() => {
-          setAnimating(false);
-          onComplete?.();
-        }}
-      >
-        <div className="glass-card gold-border flex h-full w-full items-center justify-center">
-          <div className="text-center">
-            <motion.div
-              animate={animating ? { rotate: 360 } : { rotate: 0 }}
-              transition={{ duration: 0.8, ease: 'easeInOut' }}
-              className="mx-auto mb-4 h-16 w-16 rounded-full border-4 border-champagne-500/50"
-            >
-              <div className="flex h-full items-center justify-center">
-                <div className="h-6 w-1 rounded-full bg-champagne-500" />
-              </div>
-            </motion.div>
-            <p className="text-sm text-white/40">
-              {isOpen ? 'Opening vault...' : 'Vault secured'}
-            </p>
-          </div>
-        </div>
-      </motion.div>
-    </div>
-  );
-};
-
 interface TooltipProps {
   content: string;
   children: ReactNode;
