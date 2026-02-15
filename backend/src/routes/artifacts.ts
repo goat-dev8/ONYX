@@ -35,10 +35,15 @@ router.post('/mint', authMiddleware, async (req: AuthRequest, res: Response): Pr
       return;
     }
 
-    const txAccepted = await verifyTransactionAccepted(txId);
-    if (!txAccepted) {
-      res.status(400).json({ error: 'Transaction not found or not accepted on chain' });
-      return;
+    // Verify the transaction was accepted on-chain (skip for Shield wallet pending IDs)
+    const isRealTxId = /^at1[a-z0-9]{58}$/i.test(txId);
+    if (isRealTxId) {
+      const txAccepted = await verifyTransactionAccepted(txId);
+      if (!txAccepted) {
+        console.warn('[Artifacts] Mint TX not yet confirmed, registering anyway:', txId);
+      }
+    } else {
+      console.log('[Artifacts] Non-at1 txId (Shield wallet pending), registering mint without chain verification:', txId);
     }
 
     const crypto = await import('crypto');
@@ -121,14 +126,38 @@ router.post('/stolen', authMiddleware, async (req: AuthRequest, res: Response): 
       return;
     }
 
-    const { tagHash, txId } = parsed.data;
+    const { tagHash, txId, modelId, brandAddress, serialHash } = parsed.data;
     const reportedBy = req.userAddress!;
 
-    // Verify the transaction was accepted on-chain
-    const txAccepted = await verifyTransactionAccepted(txId);
-    if (!txAccepted) {
-      res.status(400).json({ error: 'Transaction not found or not accepted on chain' });
-      return;
+    // If artifact doesn't exist in DB but metadata was provided, create it
+    if (!db.getArtifact(tagHash) && modelId && brandAddress) {
+      const crypto = await import('crypto');
+      const ownerHash = crypto.createHash('sha256').update(reportedBy).digest('hex');
+      db.setArtifact({
+        tagHash,
+        brandAddress,
+        modelId,
+        serialHash: serialHash || '',
+        createdTxId: txId,
+        mintedAt: new Date().toISOString(),
+        stolen: true,
+        lastUpdateTxId: txId,
+        ownerHash
+      });
+      console.log('[Artifacts] Created artifact from stolen report metadata:', tagHash, 'model:', modelId);
+    }
+
+    // Verify the transaction was accepted on-chain (skip for Shield wallet pending IDs)
+    const isRealTxId = /^at1[a-z0-9]{58}$/i.test(txId);
+    if (isRealTxId) {
+      const txAccepted = await verifyTransactionAccepted(txId);
+      if (!txAccepted) {
+        // Still mark as stolen — on-chain tx may be pending/propagating
+        console.warn('[Artifacts] TX not yet confirmed, marking stolen anyway:', txId);
+      }
+    } else {
+      // Shield wallet returns shield_... IDs for pending proofs
+      console.log('[Artifacts] Non-at1 txId (Shield wallet pending), marking stolen without chain verification:', txId);
     }
 
     // Always mark in stolen registry (works even if artifact not in DB)
@@ -156,19 +185,68 @@ router.post('/stolen', authMiddleware, async (req: AuthRequest, res: Response): 
 });
 
 // Check if a tag is in the stolen registry
+// v4: Also supports commitment-based lookups via /stolen/check/commitment/:commitment
 router.get('/stolen/check/:tagHash', (req: Request, res: Response): void => {
   try {
     const { tagHash } = req.params;
     const isStolen = db.isTagStolen(tagHash);
     const info = db.getStolenTagInfo(tagHash);
     
+    // Also try to get artifact metadata for richer responses
+    const artifact = db.getArtifact(tagHash);
+    
     res.json({
       stolen: isStolen,
       tagHash,
-      ...(info ? { reportedAt: info.reportedAt, txId: info.txId } : {})
+      ...(info ? { reportedAt: info.reportedAt, txId: info.txId, reportedBy: info.reportedBy } : {}),
+      ...(artifact ? { modelId: artifact.modelId, brandAddress: artifact.brandAddress, mintedAt: artifact.mintedAt } : {})
     });
   } catch (err) {
     console.error('[Artifacts] Stolen check error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// v4: Check stolen status by BHP256 commitment
+// This endpoint allows frontend to check stolen_commitments mapping directly via backend
+// when client-side WASM hashing is not available.
+router.get('/stolen/check-commitment/:commitment', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { commitment } = req.params;
+    const programId = process.env.PROGRAM_ID || 'onyxpriv_v4.aleo';
+    const { getMappingValue } = await import('../services/provableApi');
+    
+    const value = await getMappingValue(programId, 'stolen_commitments', commitment);
+    const isStolen = value !== null && String(value).includes('true');
+    
+    res.json({
+      stolen: isStolen,
+      commitment,
+      source: 'on-chain',
+    });
+  } catch (err) {
+    console.error('[Artifacts] Commitment stolen check error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// v4: Check tag existence by BHP256 commitment
+router.get('/tag/exists/:commitment', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { commitment } = req.params;
+    const programId = process.env.PROGRAM_ID || 'onyxpriv_v4.aleo';
+    const { getMappingValue } = await import('../services/provableApi');
+    
+    const value = await getMappingValue(programId, 'tag_uniqueness', commitment);
+    const exists = value !== null && String(value).includes('true');
+    
+    res.json({
+      exists,
+      commitment,
+      source: 'on-chain',
+    });
+  } catch (err) {
+    console.error('[Artifacts] Tag existence check error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

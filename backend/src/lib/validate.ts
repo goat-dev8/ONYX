@@ -34,7 +34,7 @@ export const mintArtifactSchema = z.object({
   modelId: z.number().int().positive(),
   serialHash: z.string().min(1),
   initialOwner: addressSchema,
-  txId: txIdSchema
+  txId: z.string().min(1) // Accept any non-empty txId (Shield wallet returns shield_... IDs)
 });
 
 export const transferArtifactSchema = z.object({
@@ -45,7 +45,11 @@ export const transferArtifactSchema = z.object({
 
 export const reportStolenSchema = z.object({
   tagHash: z.string().min(1),
-  txId: txIdSchema
+  txId: z.string().min(1), // Accept any non-empty txId (Shield wallet returns shield_... IDs, not at1...)
+  // Optional artifact metadata — allows stolen report to also register the artifact if not already in DB
+  modelId: z.number().int().positive().optional(),
+  brandAddress: addressSchema.optional(),
+  serialHash: z.string().min(1).optional(),
 });
 
 export const verifyProofSchema = z.object({

@@ -100,7 +100,7 @@ export const api = {
     return handleResponse<{ success: boolean; artifact: Record<string, unknown> }>(response);
   },
 
-  async reportStolen(data: { tagHash: string; txId: string }) {
+  async reportStolen(data: { tagHash: string; txId: string; modelId?: number; brandAddress?: string; serialHash?: string }) {
     const response = await fetch(`${API_BASE_URL}/artifacts/stolen`, {
       method: 'POST',
       headers: authHeaders(),
@@ -111,7 +111,7 @@ export const api = {
 
   async checkStolenStatus(tagHash: string) {
     const response = await fetch(`${API_BASE_URL}/artifacts/stolen/check/${encodeURIComponent(tagHash)}`);
-    return handleResponse<{ stolen: boolean; tagHash: string; reportedAt?: string; txId?: string }>(response);
+    return handleResponse<{ stolen: boolean; tagHash: string; reportedAt?: string; txId?: string; reportedBy?: string; modelId?: number; brandAddress?: string; mintedAt?: string }>(response);
   },
 
   async getMyArtifacts() {

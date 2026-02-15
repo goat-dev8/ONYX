@@ -80,11 +80,17 @@ export const Layout: FC<LayoutProps> = ({ children }) => {
       logout();
     }
 
+    // If connected wallet doesn't match persisted user, clear stale state
+    if (walletAddress && isAuthenticated && user?.address && walletAddress !== user.address) {
+      console.log('[Layout] Connected wallet', walletAddress, 'does not match stored user', user.address, '— clearing stale auth');
+      logout();
+    }
+
     // Update previous address
     if (walletAddress) {
       prevAddressRef.current = walletAddress;
     }
-  }, [wallet.connected, walletAddress, isAuthenticated, logout]);
+  }, [wallet.connected, walletAddress, isAuthenticated, user?.address, logout]);
 
   return (
     <div className="marble-bg relative min-h-screen">

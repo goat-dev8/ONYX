@@ -491,6 +491,7 @@ export function useOnyxWallet() {
           function: 'transfer_artifact',
           inputs: [recordInput, newOwner],
           fee: DEFAULT_FEE,
+          privateFee: false,
         });
 
         toast.dismiss('tx-transfer');
@@ -535,6 +536,7 @@ export function useOnyxWallet() {
           function: 'report_stolen',
           inputs: [recordInput],
           fee: DEFAULT_FEE,
+          privateFee: false,
         });
 
         toast.dismiss('tx-stolen');
@@ -558,7 +560,8 @@ export function useOnyxWallet() {
   const executeProveForResale = useCallback(
     async (
       artifact: { _plaintext?: string; _raw?: { id?: string; ciphertext?: string }; tagHash: string },
-      salt: string
+      salt: string,
+      verifierAddress?: string
     ): Promise<{ txId: string; token: string } | null> => {
       const executor = getExecutor();
       if (!executor) {
@@ -572,23 +575,29 @@ export function useOnyxWallet() {
         return null;
       }
 
+      // v4 requires a verifier address for private proof delivery
+      const verifier = verifierAddress || walletAddress;
+      if (!verifier) {
+        toast.error('Verifier address required for v4 private proofs');
+        return null;
+      }
+
       try {
-        toast.loading('Generating proof (stored on-chain)...', { id: 'tx-prove' });
+        toast.loading('Generating private proof...', { id: 'tx-prove' });
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
           function: 'prove_for_resale',
-          inputs: [recordInput, `${salt}field`],
+          inputs: [recordInput, `${salt}field`, verifier],
           fee: DEFAULT_FEE,
+          privateFee: false,
         });
 
         toast.dismiss('tx-prove');
 
         if (response?.transactionId) {
-          // Use deterministic token derived from txId — the actual on-chain
-          // proof token is stored in the proof_registry mapping.
           const proofToken = `onyx_proof_${response.transactionId.slice(0, 20)}`;
-          toast.success('Proof generated and stored on-chain!');
+          toast.success('Private proof generated! ProofChallenge sent to verifier.');
           return { txId: response.transactionId, token: proofToken };
         }
 
@@ -600,7 +609,7 @@ export function useOnyxWallet() {
         return null;
       }
     },
-    [getExecutor]
+    [getExecutor, walletAddress]
   );
 
   // ========== Escrow System (credits.aleo) ==========
@@ -1133,10 +1142,10 @@ export function useOnyxWallet() {
       // Shield wallet may use recordName OR functionName — accept both patterns.
       const validRecords = (records as WalletRecord[]).filter((r) => {
         if (r.spent) return false;
-        // Accept by recordName (Leo wallet style)
-        if (r.recordName === 'AssetArtifact' || r.recordName === 'EscrowReceipt' || r.recordName === 'BuyerReceipt' || r.recordName === 'SellerReceipt') return true;
+        // Accept by recordName (Leo wallet style) — v4 adds MintCertificate, ProofToken, ProofChallenge, BountyPledge
+        if (r.recordName === 'AssetArtifact' || r.recordName === 'EscrowReceipt' || r.recordName === 'BuyerReceipt' || r.recordName === 'SellerReceipt' || r.recordName === 'MintCertificate' || r.recordName === 'ProofToken' || r.recordName === 'ProofChallenge' || r.recordName === 'BountyPledge') return true;
         // Accept by functionName (Shield wallet style — knows the function that created the record)
-        if (r.functionName === 'mint_artifact' || r.functionName === 'create_escrow' || r.functionName === 'pay_verification' || r.functionName === 'pay_verification_usdcx') return true;
+        if (r.functionName === 'mint_artifact' || r.functionName === 'create_escrow' || r.functionName === 'pay_verification' || r.functionName === 'pay_verification_usdcx' || r.functionName === 'prove_for_resale' || r.functionName === 'report_stolen_with_bounty' || r.functionName === 'release_escrow' || r.functionName === 'refund_escrow') return true;
         // Fallback: if no recordName/functionName but record has commitment, include it
         if (!r.recordName && !r.functionName && r.commitment) return true;
         return false;
@@ -1163,6 +1172,10 @@ export function useOnyxWallet() {
         // BuyerReceipt / SellerReceipt fields
         let payment_hash = extractRecordField(rec as Record<string, unknown>, 'payment_hash');
         let token_type = extractRecordField(rec as Record<string, unknown>, 'token_type');
+        // v4 new record fields
+        let tag_commitment = extractRecordField(rec as Record<string, unknown>, 'tag_commitment');
+        let artifact_hash = extractRecordField(rec as Record<string, unknown>, 'artifact_hash');
+        let proof_token = extractRecordField(rec as Record<string, unknown>, 'token');
 
         // Strategy 2: If wallet gave us a ciphertext field, try to decrypt it
         if (!tag_hash && rec.ciphertext && walletAny.decrypt) {
@@ -1182,6 +1195,9 @@ export function useOnyxWallet() {
               seller = seller || parsed.seller || '';
               payment_hash = payment_hash || parsed.payment_hash || '';
               token_type = token_type || parsed.token_type || '';
+              tag_commitment = tag_commitment || parsed.tag_commitment || '';
+              artifact_hash = artifact_hash || parsed.artifact_hash || '';
+              proof_token = proof_token || parsed.token || '';
             }
           } catch (e) {
             console.warn('[OnyxWallet] Inline decrypt failed:', e);
@@ -1214,6 +1230,9 @@ export function useOnyxWallet() {
                 seller = parsed.seller || '';
                 payment_hash = parsed.payment_hash || '';
                 token_type = parsed.token_type || '';
+                tag_commitment = parsed.tag_commitment || '';
+                artifact_hash = parsed.artifact_hash || '';
+                proof_token = parsed.token || '';
               }
             }
           } catch (e) {
@@ -1221,11 +1240,16 @@ export function useOnyxWallet() {
           }
         }
 
-        const data = { brand, tag_hash, serial_hash, model_id, nonce_seed, escrow_id, amount, seller, payment_hash, token_type };
+        const data = { brand, tag_hash, serial_hash, model_id, nonce_seed, escrow_id, amount, seller, payment_hash, token_type, tag_commitment, artifact_hash, proof_token };
 
         // Determine record type based on extracted fields
         const isEscrowReceipt = !!escrow_id || rec.recordName === 'EscrowReceipt' || rec.functionName === 'create_escrow';
         const isBuyerReceipt = !!payment_hash || rec.recordName === 'BuyerReceipt' || rec.functionName === 'pay_verification' || rec.functionName === 'pay_verification_usdcx';
+        // v4 new record types
+        const isMintCertificate = rec.recordName === 'MintCertificate' || (!!tag_commitment && !!model_id && !escrow_id && !payment_hash && !proof_token);
+        const isProofToken = rec.recordName === 'ProofToken' || (!!proof_token && !!artifact_hash);
+        const isProofChallenge = rec.recordName === 'ProofChallenge' || (!!proof_token && !!tag_commitment && !artifact_hash);
+        const isBountyPledge = rec.recordName === 'BountyPledge' || rec.functionName === 'report_stolen_with_bounty';
 
         // Build plaintext string if not available but we have extracted fields
         let plaintext = rec.plaintext;
@@ -1268,6 +1292,10 @@ export function useOnyxWallet() {
           _fromWallet: true,
           _isEscrowReceipt: isEscrowReceipt,
           _isBuyerReceipt: isBuyerReceipt,
+          _isMintCertificate: isMintCertificate,
+          _isProofToken: isProofToken,
+          _isProofChallenge: isProofChallenge,
+          _isBountyPledge: isBountyPledge,
           _raw: rec,
           _plaintext: plaintext,
           _commitment: rec.commitment,

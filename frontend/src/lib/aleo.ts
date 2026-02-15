@@ -1,10 +1,10 @@
 export const ALEO_CONFIG = {
-  programId: import.meta.env.VITE_ALEO_PROGRAM_ID || 'onyxpriv_v3.aleo',
+  programId: import.meta.env.VITE_ALEO_PROGRAM_ID || 'onyxpriv_v4.aleo',
   network: import.meta.env.VITE_ALEO_NETWORK || 'testnet',
   provableApiBase: import.meta.env.VITE_PROVABLE_API_BASE || 'https://api.explorer.provable.com/v1/testnet',
-  // v3 uses self-registration (register_brand) — no admin gate needed
-  // v2 used admin-only authorize_brand — only worked for deployer
-  contractVersion: parseInt(import.meta.env.VITE_CONTRACT_VERSION || '3'),
+  // v4: 100% privacy-maximized — 5 public mappings, commitment-based lookups
+  // v3 used raw tag_hash keys, v4 uses BHP256(tag_hash) commitments
+  contractVersion: parseInt(import.meta.env.VITE_CONTRACT_VERSION || '4'),
 };
 
 // ========== ALEO API: Record Ciphertext Retrieval ==========
@@ -170,44 +170,62 @@ export function isLocallyStolen(tagHash: string): boolean {
   return !!tags[tagHash];
 }
 
-// ========== STOLEN STATUS CHECK ==========
-// Check if a tag is marked as stolen - checks BOTH backend AND localStorage
+// ========== STOLEN STATUS CHECK (v4: commitment-based) ==========
+// v4 uses BHP256(tag_hash) as the mapping key — cannot look up raw tag_hash.
+// Flow:
+//   1. Check localStorage (instant)
+//   2. Compute BHP256(tag_hash) client-side via @provablehq/wasm
+//   3. Query stolen_commitments mapping on-chain with the commitment
+//   4. Fall back to backend if client-side hash fails
+
+import { checkStolenByCommitment } from './commitment';
+
 export async function checkStolenStatus(tagHash: string): Promise<boolean> {
-  // Guard: skip check if tagHash is empty or invalid
   if (!tagHash || tagHash.trim() === '') {
     return false;
   }
 
-  // First check localStorage (instant, always available)
+  // 1. Check localStorage (instant, always available)
   if (isLocallyStolen(tagHash)) {
-    console.log('[Aleo] Tag found in local stolen registry:', tagHash);
     return true;
   }
 
-  // Then check backend
+  // 2. v4: Try commitment-based on-chain lookup (direct, no backend needed)
+  if (ALEO_CONFIG.contractVersion >= 4) {
+    try {
+      const stolen = await checkStolenByCommitment(
+        tagHash,
+        ALEO_CONFIG.programId,
+        ALEO_CONFIG.provableApiBase
+      );
+      if (stolen) {
+        saveLocalStolenTag(tagHash);
+        return true;
+      }
+    } catch {
+      // Fall through to backend
+    }
+  }
+
+  // 3. Fall back to backend
   try {
     const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
     const url = `${API_BASE}/artifacts/stolen/check/${encodeURIComponent(tagHash)}`;
-    console.log('[Aleo] Checking stolen status via backend:', url);
     
     const response = await fetch(url);
     
     if (!response.ok) {
-      console.warn('[Aleo] Backend stolen check failed:', response.status);
       return false;
     }
     
     const data = await response.json();
-    console.log('[Aleo] Stolen status response:', data);
     
-    // If backend says stolen, also save locally for redundancy
     if (data.stolen === true) {
       saveLocalStolenTag(tagHash, data.txId, data.reportedBy);
     }
     
     return data.stolen === true;
-  } catch (err) {
-    console.error('[Aleo] Check stolen error:', err);
+  } catch {
     return false;
   }
 }

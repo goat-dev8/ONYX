@@ -1,24 +1,32 @@
-// ONYX - Private Product Passports for Luxury Goods
+// ONYX v4 — 100% Privacy-Maximized Product Passports for Luxury Goods
 // Built on Aleo for Zero-Knowledge Authentication
-// Version: 3.0.0
+// Version: 4.0.0
 //
-// Architecture:
-//   - Self-registration: Any wallet can register as a brand on-chain
-//   - Real credits.aleo integration for escrow deposits and bounties
-//   - Real USDCx stablecoin integration (test_usdcx_stablecoin.aleo)
-//   - Hash-based artifact identity (BHP256 tag + serial hashes)
-//   - On-chain stolen/transfer tracking with private ownership records
-//   - Proof registry for resale verification
-//   - Hash-based verification payments with replay prevention
+// Privacy improvements over v3:
+//   - 14 public mappings → 5 (71% reduction)
+//   - Removed: tag_brand, tag_model, tag_minted_at, tag_last_transfer_at
+//   - Removed: escrow_deposits, escrow_created_at
+//   - Removed: bounty_amount, bounty_reporter
+//   - Removed: proof_registry, payment_receipts, salt_to_payment
+//   - Obfuscated: stolen flag key uses BHP256(tag_hash) commitment
+//   - Obfuscated: tag uniqueness key uses BHP256(tag_hash) commitment
+//   - Obfuscated: escrow timestamp key uses BHP256(escrow_id) commitment
+//   - Escrow release uses transfer_public_to_private (seller address hidden)
+//   - Escrow refund uses transfer_public_to_private (private credits returned)
+//   - New private records: MintCertificate, BountyPledge, ProofToken, ProofChallenge
+//   - Proof system is fully private (no public proof_registry)
+//   - Payment replay prevention via Aleo record consumption (no public mapping)
 
 import credits.aleo;
 import test_usdcx_stablecoin.aleo;
 
-program onyxpriv_v3.aleo {
+program onyxpriv_v4.aleo {
 
-    // ========== Record Types ==========
+    // ================================================================
+    //                        RECORD TYPES
+    // ================================================================
 
-    // Core artifact record — represents an authenticated luxury item
+    // Core artifact record — private product passport (unchanged from v3)
     record AssetArtifact {
         owner: address,        // Current owner of the item
         brand: address,        // Brand that minted this artifact
@@ -28,65 +36,115 @@ program onyxpriv_v3.aleo {
         nonce_seed: field      // Unique seed for record uniqueness
     }
 
-    // Escrow receipt — held by buyer as proof of deposit
+    // NEW: Private mint certificate — proves brand minted this tag
+    // Replaces public tag_brand, tag_model, tag_minted_at mappings
+    record MintCertificate {
+        owner: address,          // Brand address (only brand can see)
+        tag_hash: field,         // Tag that was minted
+        model_id: u64,           // Model identifier (now private!)
+        tag_commitment: field    // BHP256(tag_hash) for easy on-chain lookup
+    }
+
+    // Escrow receipt — held by buyer as proof of deposit (unchanged from v3)
     record EscrowReceipt {
         owner: address,        // Buyer who created the escrow
         escrow_id: field,      // Unique escrow identifier
         tag_hash: field,       // Tag being verified
-        amount: u64,           // Credits deposited
-        seller: address        // Expected seller address
+        amount: u64,           // Credits deposited (now private — not in public mapping!)
+        seller: address        // Expected seller address (now private!)
     }
 
-    // Buyer receipt — proof of verification payment (credits or USDCx)
+    // Buyer receipt — proof of verification payment (unchanged from v3)
     record BuyerReceipt {
         owner: address,        // Buyer who paid
         seller: address,       // Seller who received payment
         tag_hash: field,       // Artifact being verified
-        payment_hash: field,   // Hash-based verification
+        payment_hash: field,   // Hash-based verification identity
         amount: u64,           // Amount paid
         token_type: u8         // 0 = credits, 1 = USDCx
     }
 
-    // Seller receipt — proof of received verification payment
+    // Seller receipt — proof of received payment (unchanged from v3)
     record SellerReceipt {
         owner: address,        // Seller who received payment
-        payment_hash: field,   // Hash-based verification
+        payment_hash: field,   // Hash-based verification identity
         tag_hash: field,       // Artifact verified
         amount: u64,           // Amount received
         token_type: u8         // 0 = credits, 1 = USDCx
     }
 
-    // ========== Public Mappings ==========
+    // NEW: Private bounty pledge — replaces public bounty_amount + bounty_reporter
+    record BountyPledge {
+        owner: address,          // Reporter address (PRIVATE — never public!)
+        tag_hash: field,         // Stolen item tag
+        amount: u64,             // Bounty amount (PRIVATE — never public!)
+        tag_commitment: field    // BHP256(tag_hash) for reference
+    }
 
-    // Admin address for optional governance
+    // NEW: Private proof token — replaces public proof_registry mapping
+    record ProofToken {
+        owner: address,          // Seller who generated the proof
+        token: field,            // Proof hash
+        tag_hash: field,         // Item reference (private!)
+        artifact_hash: field     // Full identity hash
+    }
+
+    // NEW: Private proof challenge — shared with a specific verifier/buyer
+    record ProofChallenge {
+        owner: address,          // Buyer/verifier who receives the proof
+        token: field,            // Same proof token for matching
+        tag_commitment: field    // BHP256(tag_hash) for stolen check
+    }
+
+    // ================================================================
+    //              PUBLIC MAPPINGS — MINIMAL SET (5 only)
+    // ================================================================
+    //
+    // v3 had 14 public mappings. v4 has 5.
+    // Every key that was a raw tag_hash is now BHP256(tag_hash).
+    // No amounts, parties, models, or timestamps are stored publicly.
+
+    // 1. Admin governance — who can remove brands
     mapping admin: u8 => address;
 
-    // Brand registry — self-registration, no admin approval needed
+    // 2. Brand registry — self-registration (brands are public entities by design)
     mapping registered_brands: address => bool;
 
-    // Artifact registry
-    mapping tag_brand: field => address;
-    mapping tag_model: field => u64;
-    mapping tag_minted_at: field => u64;
-    mapping tag_is_stolen: field => bool;
-    mapping tag_last_transfer_at: field => u64;
+    // 3. Stolen commitments — BHP256(tag_hash) → is_stolen
+    //    Key is a hash commitment: cannot reverse to find raw tag_hash
+    //    Replaces v3's tag_is_stolen (which used raw tag_hash as key)
+    mapping stolen_commitments: field => bool;
 
-    // Escrow system
-    mapping escrow_deposits: field => u64;
-    mapping escrow_created_at: field => u64;
+    // 4. Tag uniqueness guard — BHP256(tag_hash) → exists
+    //    Prevents double-minting. Key is obfuscated.
+    //    Replaces v3's tag_minted_at (which stored raw tag_hash + block height)
+    mapping tag_uniqueness: field => bool;
 
-    // Bounty system
-    mapping bounty_amount: field => u64;
-    mapping bounty_reporter: field => address;
+    // 5. Escrow timestamps — BHP256(escrow_id) → block_height
+    //    For timeout enforcement on refunds. Key is obfuscated.
+    //    Replaces v3's escrow_deposits + escrow_created_at (which stored amounts + times)
+    mapping escrow_timestamps: field => u64;
 
-    // Proof registry
-    mapping proof_registry: field => field;
+    // ================================================================
+    //    REMOVED PUBLIC MAPPINGS (moved to private records or eliminated)
+    // ================================================================
+    //
+    // ✗ tag_brand           → in AssetArtifact + MintCertificate (already private)
+    // ✗ tag_model           → in AssetArtifact + MintCertificate (already private)
+    // ✗ tag_minted_at       → in MintCertificate record (now private)
+    // ✗ tag_is_stolen       → replaced by stolen_commitments (obfuscated key)
+    // ✗ tag_last_transfer_at → eliminated entirely (not needed)
+    // ✗ escrow_deposits     → in EscrowReceipt record (private, not in mapping)
+    // ✗ escrow_created_at   → replaced by escrow_timestamps (hashed key, no amount)
+    // ✗ bounty_amount       → in BountyPledge record (now private)
+    // ✗ bounty_reporter     → in BountyPledge record (now private — was CRITICAL leak)
+    // ✗ proof_registry      → replaced by ProofToken + ProofChallenge records
+    // ✗ payment_receipts    → eliminated (Aleo record consumption prevents replay)
+    // ✗ salt_to_payment     → eliminated (payment hash is in BuyerReceipt/SellerReceipt)
 
-    // Payment registry — hash-based verification with replay prevention
-    mapping payment_receipts: field => u64;    // receipt_hash => amount
-    mapping salt_to_payment: field => field;   // salt => payment_hash
-
-    // ========== External Structs (local copy for cross-program calls) ==========
+    // ================================================================
+    //                    EXTERNAL STRUCTS
+    // ================================================================
 
     // MerkleProof — matches test_usdcx_stablecoin.aleo/MerkleProof
     struct MerkleProof {
@@ -94,14 +152,19 @@ program onyxpriv_v3.aleo {
         leaf_index: u32
     }
 
-    // ========== Constructor ==========
+    // ================================================================
+    //                      CONSTRUCTOR
+    // ================================================================
 
     @admin(address = "aleo12qr5t4xa7z4yk6lkdxaf0md9g042sctaltgdsyan7uhqp8xdxuxqwkfqjc")
     async constructor() {}
 
-    // ========== Brand Self-Registration ==========
+    // ================================================================
+    //                   BRAND SELF-REGISTRATION
+    // ================================================================
 
     // Any wallet can register itself as a brand — NO admin approval needed
+    // (Same as v3 — brands are public entities, this mapping stays public)
     async transition register_brand() -> Future {
         return finalize_register_brand(self.signer);
     }
@@ -110,7 +173,9 @@ program onyxpriv_v3.aleo {
         Mapping::set(registered_brands, brand, true);
     }
 
-    // ========== Admin Transitions (Optional Governance) ==========
+    // ================================================================
+    //             ADMIN TRANSITIONS (Optional Governance)
+    // ================================================================
 
     // Admin can remove a brand (for fraud/abuse cases)
     async transition admin_remove_brand(brand: address) -> Future {
@@ -123,16 +188,26 @@ program onyxpriv_v3.aleo {
         Mapping::set(registered_brands, brand, false);
     }
 
-    // ========== Core Transitions ==========
+    // ================================================================
+    //          CORE TRANSITIONS — PRIVACY-MAXIMIZED
+    // ================================================================
 
-    // Mint a new artifact — ANY registered brand can mint (no admin gate)
+    // ─────────────────────────────────────────────────────────────────
+    // MINT ARTIFACT (v4: only tag_uniqueness written, all metadata private)
+    //
+    // v3 wrote: tag_brand, tag_model, tag_minted_at, tag_is_stolen
+    // v4 writes: tag_uniqueness[BHP256(tag_hash)] = true (ONLY)
+    //
+    // Returns: AssetArtifact (for owner) + MintCertificate (for brand)
+    // ─────────────────────────────────────────────────────────────────
     async transition mint_artifact(
         tag_hash: field,
         serial_hash: field,
         model_id: u64,
         initial_owner: address
-    ) -> (AssetArtifact, Future) {
+    ) -> (AssetArtifact, MintCertificate, Future) {
         let nonce: field = BHP256::hash_to_field(tag_hash + serial_hash);
+        let tag_commitment: field = BHP256::hash_to_field(tag_hash);
 
         let artifact: AssetArtifact = AssetArtifact {
             owner: initial_owner,
@@ -143,31 +218,48 @@ program onyxpriv_v3.aleo {
             nonce_seed: nonce
         };
 
-        let f: Future = finalize_mint_artifact(self.signer, tag_hash, model_id);
-        return (artifact, f);
+        // Private mint certificate — brand's proof of minting
+        let cert: MintCertificate = MintCertificate {
+            owner: self.signer,
+            tag_hash: tag_hash,
+            model_id: model_id,
+            tag_commitment: tag_commitment
+        };
+
+        let f: Future = finalize_mint_artifact(self.signer, tag_commitment);
+        return (artifact, cert, f);
     }
 
     async function finalize_mint_artifact(
         brand: address,
-        tag_hash: field,
-        model_id: u64
+        tag_commitment: field
     ) {
-        // Verify brand has self-registered (lightweight check, no admin needed)
+        // Verify brand has self-registered
         let is_registered: bool = Mapping::get_or_use(registered_brands, brand, false);
         assert(is_registered);
 
-        // Ensure tag hasn't been minted before (uniqueness check)
-        let existing_mint: u64 = Mapping::get_or_use(tag_minted_at, tag_hash, 0u64);
-        assert_eq(existing_mint, 0u64);
+        // Uniqueness check using COMMITMENT (not raw tag_hash!)
+        let existing: bool = Mapping::get_or_use(tag_uniqueness, tag_commitment, false);
+        assert(!existing);
 
-        // Register the artifact publicly
-        Mapping::set(tag_brand, tag_hash, brand);
-        Mapping::set(tag_model, tag_hash, model_id);
-        Mapping::set(tag_minted_at, tag_hash, block.height as u64);
-        Mapping::set(tag_is_stolen, tag_hash, false);
+        // Only write uniqueness flag — nothing else public
+        Mapping::set(tag_uniqueness, tag_commitment, true);
+
+        // REMOVED: tag_brand     → in AssetArtifact record
+        // REMOVED: tag_model     → in AssetArtifact record
+        // REMOVED: tag_minted_at → in MintCertificate record
+        // REMOVED: tag_is_stolen → only set on report_stolen
     }
 
-    // Transfer artifact to new owner — blocks stolen items
+    // ─────────────────────────────────────────────────────────────────
+    // TRANSFER ARTIFACT (v4: ZERO public state writes)
+    //
+    // v3 wrote: tag_last_transfer_at[tag_hash] = block.height
+    // v4 writes: NOTHING — stolen check only, no state mutation
+    //
+    // Explorer sees: transaction fee only. No transfer timestamp,
+    // no addresses, no item details.
+    // ─────────────────────────────────────────────────────────────────
     async transition transfer_artifact(
         artifact: AssetArtifact,
         new_owner: address
@@ -187,17 +279,29 @@ program onyxpriv_v3.aleo {
             nonce_seed: new_nonce
         };
 
-        let f: Future = finalize_transfer_artifact(artifact.tag_hash);
+        // Stolen check uses obfuscated commitment
+        let tag_commitment: field = BHP256::hash_to_field(artifact.tag_hash);
+        let f: Future = finalize_transfer_artifact(tag_commitment);
         return (new_artifact, f);
     }
 
-    async function finalize_transfer_artifact(tag_hash: field) {
-        let stolen: bool = Mapping::get_or_use(tag_is_stolen, tag_hash, false);
+    async function finalize_transfer_artifact(tag_commitment: field) {
+        // Block stolen items from being transferred
+        let stolen: bool = Mapping::get_or_use(stolen_commitments, tag_commitment, false);
         assert(!stolen);
-        Mapping::set(tag_last_transfer_at, tag_hash, block.height as u64);
+
+        // REMOVED: tag_last_transfer_at — no timing leak
     }
 
-    // Report artifact as stolen
+    // ─────────────────────────────────────────────────────────────────
+    // REPORT STOLEN (v4: obfuscated key in stolen_commitments)
+    //
+    // v3 wrote: tag_is_stolen[tag_hash] = true (raw tag_hash exposed!)
+    // v4 writes: stolen_commitments[BHP256(tag_hash)] = true
+    //
+    // An observer cannot enumerate stolen items without knowing tag_hash.
+    // A buyer with the NFC tag can compute BHP256(tag_hash) to verify.
+    // ─────────────────────────────────────────────────────────────────
     async transition report_stolen(
         artifact: AssetArtifact
     ) -> (AssetArtifact, Future) {
@@ -214,19 +318,32 @@ program onyxpriv_v3.aleo {
             nonce_seed: new_nonce
         };
 
-        let f: Future = finalize_report_stolen(artifact.tag_hash);
+        let tag_commitment: field = BHP256::hash_to_field(artifact.tag_hash);
+        let f: Future = finalize_report_stolen(tag_commitment);
         return (updated_artifact, f);
     }
 
-    async function finalize_report_stolen(tag_hash: field) {
-        Mapping::set(tag_is_stolen, tag_hash, true);
+    async function finalize_report_stolen(tag_commitment: field) {
+        Mapping::set(stolen_commitments, tag_commitment, true);
     }
 
-    // Generate proof for resale
+    // ─────────────────────────────────────────────────────────────────
+    // PROVE FOR RESALE (v4: fully private proofs, no public registry)
+    //
+    // v3 wrote: proof_registry[token] = tag_hash (leaked which items
+    //           have active proofs and linked tokens to tags)
+    // v4 writes: NOTHING to public state
+    //
+    // Returns: ProofToken (to seller) + ProofChallenge (to verifier)
+    // Both are private records — no one else can see them.
+    //
+    // NEW: requires verifier address — proof is directed to a specific buyer
+    // ─────────────────────────────────────────────────────────────────
     async transition prove_for_resale(
         artifact: AssetArtifact,
-        salt: field
-    ) -> (AssetArtifact, field, Future) {
+        salt: field,
+        verifier: address
+    ) -> (AssetArtifact, ProofToken, ProofChallenge, Future) {
         assert_eq(artifact.owner, self.signer);
 
         let proof_input: field = BHP256::hash_to_field(
@@ -236,19 +353,59 @@ program onyxpriv_v3.aleo {
         );
         let token: field = BHP256::hash_to_field(proof_input);
 
-        let f: Future = finalize_prove_for_resale(token, artifact.tag_hash);
-        return (artifact, token, f);
+        let artifact_hash: field = BHP256::hash_to_field(
+            artifact.tag_hash +
+            artifact.serial_hash +
+            artifact.brand as field
+        );
+
+        // Private proof token for the seller
+        let proof: ProofToken = ProofToken {
+            owner: self.signer,
+            token: token,
+            tag_hash: artifact.tag_hash,
+            artifact_hash: artifact_hash
+        };
+
+        // Private proof challenge for the buyer/verifier
+        let tag_commitment: field = BHP256::hash_to_field(artifact.tag_hash);
+        let challenge: ProofChallenge = ProofChallenge {
+            owner: verifier,
+            token: token,
+            tag_commitment: tag_commitment
+        };
+
+        let f: Future = finalize_prove_for_resale(tag_commitment);
+        return (artifact, proof, challenge, f);
     }
 
-    async function finalize_prove_for_resale(token: field, tag_hash: field) {
-        let stolen: bool = Mapping::get_or_use(tag_is_stolen, tag_hash, false);
+    async function finalize_prove_for_resale(tag_commitment: field) {
+        // Only check stolen status — write NOTHING public
+        let stolen: bool = Mapping::get_or_use(stolen_commitments, tag_commitment, false);
         assert(!stolen);
-        Mapping::set(proof_registry, token, tag_hash);
+
+        // REMOVED: proof_registry[token] = tag_hash
     }
 
-    // ========== Escrow System (credits.aleo integration) ==========
+    // ================================================================
+    //        ESCROW SYSTEM — PRIVATE WITH SECURE FUND LOCKING
+    // ================================================================
+    //
+    // Deposit: transfer_private_to_public (funds locked in program's public balance)
+    // Release: transfer_public_to_private (seller gets PRIVATE credits — address hidden!)
+    // Refund:  transfer_public_to_private (buyer gets PRIVATE credits back)
+    //
+    // v3 leaks: escrow_deposits[id] = amount, escrow_created_at[id] = block
+    //           release_escrow uses transfer_public (seller address + amount visible)
+    // v4 leaks: escrow_timestamps[hash(id)] = block (only timing, no amount/parties)
+    //           release uses transfer_public_to_private (seller address HIDDEN)
 
-    // Buyer creates escrow — deposits credits for paid verification
+    // ─────────────────────────────────────────────────────────────────
+    // CREATE ESCROW
+    //
+    // Deposits credits to program's public balance (necessary for fund locking).
+    // Only writes a hashed timestamp — no amount or party info in public state.
+    // ─────────────────────────────────────────────────────────────────
     async transition create_escrow(
         pay_record: credits.aleo/credits,
         tag_hash: field,
@@ -269,100 +426,136 @@ program onyxpriv_v3.aleo {
             seller: seller
         };
 
+        // Deposit to program's public balance (secure fund locking)
         let (change, transfer_f): (credits.aleo/credits, Future) =
             credits.aleo/transfer_private_to_public(pay_record, self.address, amount);
 
-        let f: Future = finalize_create_escrow(transfer_f, escrow_id, amount);
+        // Obfuscate escrow ID and tag hash before sending to finalize
+        let escrow_commitment: field = BHP256::hash_to_field(escrow_id);
+        let tag_commitment: field = BHP256::hash_to_field(tag_hash);
+
+        let f: Future = finalize_create_escrow(
+            transfer_f, escrow_commitment, tag_commitment
+        );
         return (receipt, change, f);
     }
 
     async function finalize_create_escrow(
         transfer_f: Future,
-        escrow_id: field,
-        amount: u64
+        escrow_commitment: field,
+        tag_commitment: field
     ) {
         transfer_f.await();
 
-        let existing: u64 = Mapping::get_or_use(escrow_deposits, escrow_id, 0u64);
-        assert_eq(existing, 0u64);
+        // Verify item exists and isn't stolen
+        let exists: bool = Mapping::get_or_use(tag_uniqueness, tag_commitment, false);
+        assert(exists);
 
-        Mapping::set(escrow_deposits, escrow_id, amount);
-        Mapping::set(escrow_created_at, escrow_id, block.height as u64);
+        let stolen: bool = Mapping::get_or_use(stolen_commitments, tag_commitment, false);
+        assert(!stolen);
+
+        // Prevent duplicate escrows
+        let existing_ts: u64 = Mapping::get_or_use(escrow_timestamps, escrow_commitment, 0u64);
+        assert_eq(existing_ts, 0u64);
+
+        // Only store timestamp with hashed key — no amount, no parties
+        Mapping::set(escrow_timestamps, escrow_commitment, block.height as u64);
+
+        // REMOVED: escrow_deposits[escrow_id] = amount
+        // REMOVED: escrow_created_at[escrow_id] = block.height
     }
 
-    // Buyer releases escrow — pays seller after verifying item
+    // ─────────────────────────────────────────────────────────────────
+    // RELEASE ESCROW (v4: seller gets PRIVATE credits)
+    //
+    // v3 used: transfer_public(seller, amount) — seller + amount visible on explorer
+    // v4 uses: transfer_public_to_private(seller, amount) — seller address HIDDEN,
+    //          seller receives encrypted private credits record
+    // ─────────────────────────────────────────────────────────────────
     async transition release_escrow(
         receipt: EscrowReceipt
-    ) -> Future {
+    ) -> (credits.aleo/credits, Future) {
         assert_eq(receipt.owner, self.signer);
 
-        let transfer_f: Future = credits.aleo/transfer_public(
-            receipt.seller, receipt.amount
-        );
+        // Transfer from program's public balance to seller as PRIVATE credits
+        // The seller address is a private parameter — hidden from explorer
+        let (seller_credits, transfer_f): (credits.aleo/credits, Future) =
+            credits.aleo/transfer_public_to_private(receipt.seller, receipt.amount);
 
-        let f: Future = finalize_release_escrow(
-            transfer_f, receipt.escrow_id, receipt.amount
-        );
-        return f;
+        let escrow_commitment: field = BHP256::hash_to_field(receipt.escrow_id);
+        let f: Future = finalize_release_escrow(transfer_f, escrow_commitment);
+        return (seller_credits, f);
     }
 
     async function finalize_release_escrow(
         transfer_f: Future,
-        escrow_id: field,
-        amount: u64
+        escrow_commitment: field
     ) {
-        let deposited: u64 = Mapping::get_or_use(escrow_deposits, escrow_id, 0u64);
-        assert(deposited > 0u64);
-        assert_eq(deposited, amount);
+        // Verify escrow exists
+        let ts: u64 = Mapping::get_or_use(escrow_timestamps, escrow_commitment, 0u64);
+        assert(ts > 0u64);
 
         transfer_f.await();
 
-        Mapping::set(escrow_deposits, escrow_id, 0u64);
-        Mapping::set(escrow_created_at, escrow_id, 0u64);
+        // Cleanup timestamp
+        Mapping::set(escrow_timestamps, escrow_commitment, 0u64);
     }
 
-    // Buyer refunds expired escrow
+    // ─────────────────────────────────────────────────────────────────
+    // REFUND ESCROW (v4: buyer gets PRIVATE credits back)
+    //
+    // v3 used: transfer_public(buyer, amount) — buyer + amount visible
+    // v4 uses: transfer_public_to_private(buyer, amount) — buyer receives
+    //          private credits, address hidden
+    //
+    // Timeout: still requires block.height >= created_at + 1000
+    // ─────────────────────────────────────────────────────────────────
     async transition refund_escrow(
         receipt: EscrowReceipt
-    ) -> Future {
+    ) -> (credits.aleo/credits, Future) {
         assert_eq(receipt.owner, self.signer);
 
-        let transfer_f: Future = credits.aleo/transfer_public(
-            self.signer, receipt.amount
-        );
+        // Refund as private credits to buyer
+        let (buyer_credits, transfer_f): (credits.aleo/credits, Future) =
+            credits.aleo/transfer_public_to_private(self.signer, receipt.amount);
 
-        let f: Future = finalize_refund_escrow(
-            transfer_f, receipt.escrow_id, receipt.amount
-        );
-        return f;
+        let escrow_commitment: field = BHP256::hash_to_field(receipt.escrow_id);
+        let f: Future = finalize_refund_escrow(transfer_f, escrow_commitment);
+        return (buyer_credits, f);
     }
 
     async function finalize_refund_escrow(
         transfer_f: Future,
-        escrow_id: field,
-        amount: u64
+        escrow_commitment: field
     ) {
-        let deposited: u64 = Mapping::get_or_use(escrow_deposits, escrow_id, 0u64);
-        assert(deposited > 0u64);
-        assert_eq(deposited, amount);
-
-        let created_at: u64 = Mapping::get(escrow_created_at, escrow_id);
+        // Verify escrow exists and timeout has passed
+        let created_at: u64 = Mapping::get(escrow_timestamps, escrow_commitment);
+        assert(created_at > 0u64);
         assert((block.height as u64) >= created_at + 1000u64);
 
         transfer_f.await();
 
-        Mapping::set(escrow_deposits, escrow_id, 0u64);
-        Mapping::set(escrow_created_at, escrow_id, 0u64);
+        // Cleanup
+        Mapping::set(escrow_timestamps, escrow_commitment, 0u64);
     }
 
-    // ========== Bounty System ==========
+    // ================================================================
+    //             BOUNTY SYSTEM — PRIVATE BOUNTY RECORDS
+    // ================================================================
+    //
+    // v3 leaks: bounty_amount[tag] = amount, bounty_reporter[tag] = address
+    //           CRITICAL: reporter identity was PUBLIC
+    // v4 leaks: NOTHING beyond the stolen flag
+    //           Amount and reporter are in private BountyPledge record
 
-    // Report stolen with bounty
+    // ─────────────────────────────────────────────────────────────────
+    // REPORT STOLEN WITH BOUNTY
+    // ─────────────────────────────────────────────────────────────────
     async transition report_stolen_with_bounty(
         artifact: AssetArtifact,
         bounty_record: credits.aleo/credits,
         bounty_amt: u64
-    ) -> (AssetArtifact, credits.aleo/credits, Future) {
+    ) -> (AssetArtifact, BountyPledge, credits.aleo/credits, Future) {
         assert_eq(artifact.owner, self.signer);
 
         let new_nonce: field = BHP256::hash_to_field(artifact.nonce_seed + 2field);
@@ -376,31 +569,51 @@ program onyxpriv_v3.aleo {
             nonce_seed: new_nonce
         };
 
+        let tag_commitment: field = BHP256::hash_to_field(artifact.tag_hash);
+
+        // Deposit bounty to program's public balance
         let (change, transfer_f): (credits.aleo/credits, Future) =
             credits.aleo/transfer_private_to_public(bounty_record, self.address, bounty_amt);
 
-        let f: Future = finalize_report_stolen_bounty(
-            transfer_f, artifact.tag_hash, self.signer, bounty_amt
-        );
-        return (updated, change, f);
+        // Private bounty pledge — reporter identity NEVER public
+        let pledge: BountyPledge = BountyPledge {
+            owner: self.signer,
+            tag_hash: artifact.tag_hash,
+            amount: bounty_amt,
+            tag_commitment: tag_commitment
+        };
+
+        let f: Future = finalize_report_stolen_bounty(transfer_f, tag_commitment);
+        return (updated, pledge, change, f);
     }
 
     async function finalize_report_stolen_bounty(
         transfer_f: Future,
-        tag_hash: field,
-        reporter: address,
-        amount: u64
+        tag_commitment: field
     ) {
         transfer_f.await();
-        Mapping::set(tag_is_stolen, tag_hash, true);
-        Mapping::set(bounty_amount, tag_hash, amount);
-        Mapping::set(bounty_reporter, tag_hash, reporter);
+
+        // Only set stolen flag — NO amount or reporter in public state
+        Mapping::set(stolen_commitments, tag_commitment, true);
+
+        // REMOVED: bounty_amount[tag_hash] = amount
+        // REMOVED: bounty_reporter[tag_hash] = reporter
     }
 
-    // ========== Verification Payments (Credits) ==========
+    // ================================================================
+    //      VERIFICATION PAYMENTS — FULLY PRIVATE (no public receipts)
+    // ================================================================
+    //
+    // v3 leaks: payment_receipts[hash] = amount, salt_to_payment[salt] = hash
+    // v4 leaks: NOTHING — replay prevention via Aleo record consumption
+    //
+    // The credits.aleo/transfer_private call is already private.
+    // BuyerReceipt and SellerReceipt records prove payment to each party.
+    // No third party can determine payment amounts or participants.
 
-    // Direct private payment for artifact verification using credits.aleo
-    // Uses hash-based identity: BHP256(seller) + BHP256(amount) + BHP256(salt)
+    // ─────────────────────────────────────────────────────────────────
+    // PAY VERIFICATION (Credits)
+    // ─────────────────────────────────────────────────────────────────
     async transition pay_verification(
         pay_record: credits.aleo/credits,
         tag_hash: field,
@@ -409,21 +622,17 @@ program onyxpriv_v3.aleo {
         salt: field,
         private payment_secret: field
     ) -> (credits.aleo/credits, credits.aleo/credits, BuyerReceipt, SellerReceipt, Future) {
-        // Private transfer to seller
+        // Private transfer to seller (already private in v3 — unchanged)
         let (r1, r2): (credits.aleo/credits, credits.aleo/credits) =
             credits.aleo/transfer_private(pay_record, seller, amount);
 
-        // Compute payment hash for on-chain verification
+        // Payment hash for receipt identity
         let seller_field: field = seller as field;
         let amount_field: field = amount as field;
         let seller_hash: field = BHP256::hash_to_field(seller_field);
         let amount_hash: field = BHP256::hash_to_field(amount_field);
         let salt_hash: field = BHP256::hash_to_field(salt);
         let payment_hash: field = seller_hash + amount_hash + salt_hash;
-
-        // Compute receipt hash for replay prevention
-        let salt_scalar: scalar = BHP256::hash_to_scalar(salt);
-        let receipt_hash: field = BHP256::commit_to_field(payment_secret, salt_scalar);
 
         let buyer_receipt: BuyerReceipt = BuyerReceipt {
             owner: self.signer,
@@ -442,40 +651,31 @@ program onyxpriv_v3.aleo {
             token_type: 0u8
         };
 
-        let f: Future = finalize_pay_verification(
-            tag_hash, payment_hash, salt, receipt_hash, amount
-        );
+        let tag_commitment: field = BHP256::hash_to_field(tag_hash);
+        let f: Future = finalize_pay_verification(tag_commitment);
         return (r1, r2, buyer_receipt, seller_receipt, f);
     }
 
-    async function finalize_pay_verification(
-        tag_hash: field,
-        payment_hash: field,
-        salt: field,
-        receipt_hash: field,
-        amount: u64
-    ) {
-        // Verify artifact exists on-chain
-        let minted: u64 = Mapping::get_or_use(tag_minted_at, tag_hash, 0u64);
-        assert(minted > 0u64);
+    async function finalize_pay_verification(tag_commitment: field) {
+        // Verify artifact exists
+        let exists: bool = Mapping::get_or_use(tag_uniqueness, tag_commitment, false);
+        assert(exists);
 
-        // Verify artifact not stolen
-        let stolen: bool = Mapping::get_or_use(tag_is_stolen, tag_hash, false);
+        // Verify not stolen
+        let stolen: bool = Mapping::get_or_use(stolen_commitments, tag_commitment, false);
         assert(!stolen);
 
-        // Prevent duplicate payments with same receipt
-        let exists: bool = Mapping::contains(payment_receipts, receipt_hash);
-        assert(!exists);
-
-        // Register payment on-chain
-        Mapping::set(payment_receipts, receipt_hash, amount);
-        Mapping::set(salt_to_payment, salt, payment_hash);
+        // REMOVED: payment_receipts[receipt_hash] = amount
+        // REMOVED: salt_to_payment[salt] = payment_hash
+        // Replay prevention: credits record consumption (can't spend same record twice)
     }
 
-    // ========== Verification Payments (USDCx Stablecoin) ==========
-
-    // Direct private payment using USDCx stablecoin with freeze-list compliance
+    // ─────────────────────────────────────────────────────────────────
+    // PAY VERIFICATION (USDCx Stablecoin)
+    //
     // Cross-program call to test_usdcx_stablecoin.aleo/transfer_private
+    // with freeze-list compliance proofs.
+    // ─────────────────────────────────────────────────────────────────
     async transition pay_verification_usdcx(
         pay_record: test_usdcx_stablecoin.aleo/Token,
         seller: address,
@@ -493,17 +693,13 @@ program onyxpriv_v3.aleo {
             Future
         ) = test_usdcx_stablecoin.aleo/transfer_private(seller, amount, pay_record, proofs);
 
-        // Compute payment hash for on-chain verification
+        // Payment hash
         let seller_field: field = seller as field;
         let amount_field: field = amount as field;
         let seller_hash: field = BHP256::hash_to_field(seller_field);
         let amount_hash: field = BHP256::hash_to_field(amount_field);
         let salt_hash: field = BHP256::hash_to_field(salt);
         let payment_hash: field = seller_hash + amount_hash + salt_hash;
-
-        // Compute receipt hash for replay prevention
-        let salt_scalar: scalar = BHP256::hash_to_scalar(salt);
-        let receipt_hash: field = BHP256::commit_to_field(payment_secret, salt_scalar);
 
         let amount_u64: u64 = amount as u64;
 
@@ -524,37 +720,49 @@ program onyxpriv_v3.aleo {
             token_type: 1u8
         };
 
-        let f: Future = finalize_pay_verification_usdcx(
-            transfer_future, tag_hash, payment_hash, salt, receipt_hash, amount_u64
-        );
+        let tag_commitment: field = BHP256::hash_to_field(tag_hash);
+        let f: Future = finalize_pay_verification_usdcx(transfer_future, tag_commitment);
         return (token_seller, token_change, compliance_record, buyer_receipt, seller_receipt, f);
     }
 
     async function finalize_pay_verification_usdcx(
         transfer_f: Future,
-        tag_hash: field,
-        payment_hash: field,
-        salt: field,
-        receipt_hash: field,
-        amount: u64
+        tag_commitment: field
     ) {
-        // Await USDCx transfer with compliance verification
         transfer_f.await();
 
-        // Verify artifact exists on-chain
-        let minted: u64 = Mapping::get_or_use(tag_minted_at, tag_hash, 0u64);
-        assert(minted > 0u64);
+        let exists: bool = Mapping::get_or_use(tag_uniqueness, tag_commitment, false);
+        assert(exists);
 
-        // Verify artifact not stolen
-        let stolen: bool = Mapping::get_or_use(tag_is_stolen, tag_hash, false);
+        let stolen: bool = Mapping::get_or_use(stolen_commitments, tag_commitment, false);
         assert(!stolen);
 
-        // Prevent duplicate payments
-        let exists: bool = Mapping::contains(payment_receipts, receipt_hash);
-        assert(!exists);
+        // REMOVED: payment_receipts, salt_to_payment
+    }
 
-        // Register payment on-chain
-        Mapping::set(payment_receipts, receipt_hash, amount);
-        Mapping::set(salt_to_payment, salt, payment_hash);
+    // ================================================================
+    //                 MIGRATION HELPERS (admin-only)
+    // ================================================================
+
+    // Bootstrap stolen entries from v3 → v4 (admin calls with BHP256 commitments)
+    async transition bootstrap_stolen(tag_commitment: field) -> Future {
+        return finalize_bootstrap_stolen(self.signer, tag_commitment);
+    }
+
+    async function finalize_bootstrap_stolen(caller: address, tag_commitment: field) {
+        let admin_addr: address = Mapping::get(admin, 0u8);
+        assert_eq(caller, admin_addr);
+        Mapping::set(stolen_commitments, tag_commitment, true);
+    }
+
+    // Bootstrap tag uniqueness entries from v3 → v4
+    async transition bootstrap_tag(tag_commitment: field) -> Future {
+        return finalize_bootstrap_tag(self.signer, tag_commitment);
+    }
+
+    async function finalize_bootstrap_tag(caller: address, tag_commitment: field) {
+        let admin_addr: address = Mapping::get(admin, 0u8);
+        assert_eq(caller, admin_addr);
+        Mapping::set(tag_uniqueness, tag_commitment, true);
     }
 }

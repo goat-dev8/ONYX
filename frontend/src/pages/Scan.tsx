@@ -22,6 +22,7 @@ interface ScanResult {
   artifact?: {
     tagHash: string;
     brandAddress: string;
+    brandName?: string;
     modelId: number;
     mintedAt: string;
     owner: string;
@@ -93,27 +94,37 @@ export const Scan: FC = () => {
       // Clean up the tag hash (remove 'field' suffix if present)
       tagHash = tagHash.replace('field', '').trim();
 
-      // Check on-chain stolen mapping FIRST
+      // 1. Check on-chain stolen mapping
       console.log('[Scan] Checking stolen status for tag:', tagHash);
       const isStolen = await checkStolenStatus(tagHash);
       console.log('[Scan] Stolen status:', isStolen);
 
-      // First try backend
+      // 2. Try backend artifact lookup (has real model/brand data if mint was synced)
       let response;
       try {
         response = await api.verifyArtifact(tagHash);
       } catch {
         response = { status: 'unknown' as const, authentic: false, stolen: false, message: '' };
       }
-      
-      // If backend doesn't have full data, search wallet records
+      console.log('[Scan] Backend artifact response:', response);
+
+      // 3. If backend has no artifact data, also check stolen registry (has metadata since fix)
+      let stolenInfo: { stolen: boolean; modelId?: number; brandAddress?: string; mintedAt?: string; reportedBy?: string } | null = null;
+      if (response.status === 'unknown' || !response.brandAddress) {
+        try {
+          stolenInfo = await api.checkStolenStatus(tagHash);
+          console.log('[Scan] Backend stolen registry info:', stolenInfo);
+        } catch {
+          stolenInfo = null;
+        }
+      }
+
+      // 4. Search wallet records (owner's own items)
       let walletArtifact = null;
       if (!response.brandAddress || response.status === 'unknown') {
-        console.log('[Scan] Backend has no data, searching wallet records...');
+        console.log('[Scan] Searching wallet records...');
         const walletRecords = await fetchRecords();
-        console.log('[Scan] Wallet records:', walletRecords);
         
-        // Search for matching tag hash in wallet records
         type WalletRecord = {
           data?: { 
             tag_hash?: string; 
@@ -126,52 +137,109 @@ export const Scan: FC = () => {
         
         walletArtifact = (walletRecords as WalletRecord[]).find((record) => {
           const recordTagHash = record.data?.tag_hash?.replace('.private', '').replace('field', '') || '';
-          console.log('[Scan] Comparing:', recordTagHash, 'with', tagHash);
           return recordTagHash === tagHash;
         });
-        
         console.log('[Scan] Found wallet artifact:', walletArtifact);
       }
 
-      // Build result from backend OR wallet data
+      // Helper: resolve brand display name from brand address
+      const resolveBrandName = async (brandAddr: string): Promise<string> => {
+        if (!brandAddr) return '';
+        try {
+          const brandList = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/brands`);
+          const data = await brandList.json();
+          // data.brands is an array of { address, displayName }
+          const brands = Array.isArray(data.brands) ? data.brands : Object.values(data.brands || {});
+          const brand = (brands as Array<{ address: string; displayName: string }>).find(
+            (b) => b.address === brandAddr
+          );
+          return brand?.displayName || '';
+        } catch {
+          return '';
+        }
+      };
+
+      // 5. Build result from the BEST available real data source
+      // First determine the brand address from the best source
+      let finalBrandAddress = '';
       if (walletArtifact) {
-        const parseAddress = (val: string | undefined) => {
-          if (!val) return '';
-          return val.replace('.private', '').replace('.public', '');
-        };
+        finalBrandAddress = (walletArtifact.data?.brand || '').replace('.private', '').replace('.public', '');
+      } else if (response.brandAddress) {
+        finalBrandAddress = response.brandAddress;
+      } else if (stolenInfo?.brandAddress) {
+        finalBrandAddress = stolenInfo.brandAddress;
+      }
+      // Resolve brand display name
+      const brandName = finalBrandAddress ? await resolveBrandName(finalBrandAddress) : '';
+
+      if (walletArtifact) {
+        // Best source: wallet records have full decrypted data
         const parseU64 = (val: string | undefined) => {
           if (!val) return 0;
           return parseInt(val.replace('.private', '').replace('.public', '').replace('u64', ''), 10);
         };
+        const ownerAddr = (walletArtifact.owner || '').replace('.private', '').replace('.public', '');
         
         setResult({
           valid: true,
-          authentic: !isStolen, // Not authentic if stolen
-          stolen: isStolen,     // Use on-chain stolen status
+          authentic: !isStolen,
+          stolen: isStolen,
           artifact: {
             tagHash,
-            brandAddress: parseAddress(walletArtifact.data?.brand),
+            brandAddress: finalBrandAddress,
+            brandName,
             modelId: parseU64(walletArtifact.data?.model_id),
             mintedAt: new Date().toISOString(),
-            owner: parseAddress(walletArtifact.owner),
+            owner: ownerAddr,
           },
         });
-      } else if (response.authentic || isStolen) {
-        // Item exists (either in backend or marked stolen on-chain)
+      } else if (response.authentic || (response.status !== 'unknown' && response.brandAddress)) {
+        // Second best: backend has full artifact data
         setResult({
           valid: true,
           authentic: response.authentic && !isStolen,
           stolen: isStolen || response.stolen,
           artifact: {
             tagHash,
-            brandAddress: response.brandAddress || 'unknown',
+            brandAddress: finalBrandAddress,
+            brandName,
             modelId: response.modelId || 0,
             mintedAt: response.mintedAt || new Date().toISOString(),
             owner: 'private',
           },
         });
+      } else if (isStolen && stolenInfo?.stolen) {
+        // Third: item is stolen — use metadata from stolen registry
+        setResult({
+          valid: true,
+          authentic: false,
+          stolen: true,
+          artifact: {
+            tagHash,
+            brandAddress: finalBrandAddress,
+            brandName,
+            modelId: stolenInfo.modelId || 0,
+            mintedAt: stolenInfo.mintedAt || new Date().toISOString(),
+            owner: 'private',
+          },
+        });
+      } else if (isStolen) {
+        // Fourth: on-chain says stolen but no backend metadata at all
+        setResult({
+          valid: true,
+          authentic: false,
+          stolen: true,
+          artifact: {
+            tagHash,
+            brandAddress: '',
+            brandName: '',
+            modelId: 0,
+            mintedAt: new Date().toISOString(),
+            owner: 'private',
+          },
+        });
       } else {
-        // Not found anywhere
+        // Truly not found anywhere
         setResult({
           valid: false,
           error: 'Item not found - not registered on chain',
@@ -285,7 +353,7 @@ export const Scan: FC = () => {
                     <div className="flex justify-between border-b border-white/5 pb-2">
                       <span className="text-white/40">Brand</span>
                       <span className="font-mono text-white/70">
-                        {formatAddress(result.artifact.brandAddress, 6)}
+                        {result.artifact.brandName || formatAddress(result.artifact.brandAddress, 6) || 'private'}
                       </span>
                     </div>
                     <div className="flex justify-between border-b border-white/5 pb-2">

@@ -1,7 +1,7 @@
 {
-  "program": "onyxpriv_v3.aleo",
-  "version": "3.0.0",
-  "description": "ONYX - Private Product Passports for Luxury Goods on Aleo",
+  "program": "onyxpriv_v4.aleo",
+  "version": "4.0.0",
+  "description": "ONYX v4 — 100% Privacy-Maximized Product Passports on Aleo",
   "license": "MIT",
   "leo": "3.4.0",
   "dependencies": [

@@ -67,7 +67,17 @@ export const Vault: FC = () => {
       
       // Parse wallet records into artifacts
       if (walletRecords.length > 0) {
-        const walletArtifacts: Artifact[] = (walletRecords as Array<{
+        // Filter out non-AssetArtifact records (MintCertificate, ProofToken, etc.)
+        const artifactRecords = walletRecords.filter((r: Record<string, unknown>) => {
+          if (r._isMintCertificate || r._isProofToken || r._isProofChallenge || r._isBountyPledge || r._isEscrowReceipt || r._isBuyerReceipt) {
+            console.log('[Vault] Skipping non-AssetArtifact record:', r._isMintCertificate ? 'MintCertificate' : r._isProofToken ? 'ProofToken' : r._isProofChallenge ? 'ProofChallenge' : r._isBountyPledge ? 'BountyPledge' : r._isEscrowReceipt ? 'EscrowReceipt' : 'BuyerReceipt');
+            return false;
+          }
+          return true;
+        });
+        console.log('[Vault] Filtered to', artifactRecords.length, 'AssetArtifact records from', walletRecords.length, 'total');
+
+        const walletArtifacts: Artifact[] = (artifactRecords as Array<{
           data?: { 
             tag_hash?: string; 
             serial_hash?: string; 
@@ -238,13 +248,16 @@ export const Vault: FC = () => {
       saveLocalStolenTag(selectedArtifact.tagHash, txId, walletAddress || undefined);
       console.log('[Vault] Saved stolen tag to localStorage');
       
-      // Update backend registry - this is important for tracking!
+      // Update backend registry with full artifact metadata for cross-account lookups
       try {
         await api.reportStolen({
           tagHash: selectedArtifact.tagHash,
           txId,
+          modelId: selectedArtifact.modelId,
+          brandAddress: selectedArtifact.brandAddress,
+          serialHash: selectedArtifact.serialHash,
         });
-        console.log('[Vault] Backend stolen registry updated');
+        console.log('[Vault] Backend stolen registry updated with artifact metadata');
       } catch (err) {
         console.error('[Vault] Backend stolen update failed:', err);
         // Still show success since on-chain worked AND we saved locally
