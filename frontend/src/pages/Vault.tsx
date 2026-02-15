@@ -68,7 +68,8 @@ export const Vault: FC = () => {
       // Parse wallet records into artifacts
       if (walletRecords.length > 0) {
         // Filter out non-AssetArtifact records (MintCertificate, ProofToken, etc.)
-        const artifactRecords = walletRecords.filter((r: Record<string, unknown>) => {
+        const artifactRecords = walletRecords.filter((rec) => {
+          const r = rec as Record<string, unknown>;
           if (r._isMintCertificate || r._isProofToken || r._isProofChallenge || r._isBountyPledge || r._isEscrowReceipt || r._isBuyerReceipt) {
             console.log('[Vault] Skipping non-AssetArtifact record:', r._isMintCertificate ? 'MintCertificate' : r._isProofToken ? 'ProofToken' : r._isProofChallenge ? 'ProofChallenge' : r._isBountyPledge ? 'BountyPledge' : r._isEscrowReceipt ? 'EscrowReceipt' : 'BuyerReceipt');
             return false;
