@@ -1,13 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { Database, Brand, Artifact, ResaleProof, EventLog } from '../types';
+import { Database, Brand, Artifact, ResaleProof, EventLog, Listing } from '../types';
 
 const DB_PATH = process.env.DB_PATH || './data/db.json';
 
 const DEFAULT_DB: Database = {
   brands: {},
   artifacts: {},
+  listings: {},
   proofs: [],
   nonces: {},
   events: [],
@@ -134,6 +135,10 @@ export class DatabaseService {
     return this.data.artifacts[tagHash] || null;
   }
 
+  getAllArtifacts(): Artifact[] {
+    return Object.values(this.data.artifacts);
+  }
+
   setArtifact(artifact: Artifact): void {
     this.data.artifacts[artifact.tagHash] = artifact;
     this.save();
@@ -191,5 +196,116 @@ export class DatabaseService {
 
   getStolenTagInfo(tagHash: string): { tagHash: string; reportedAt: string; txId: string; reportedBy: string } | null {
     return this.data.stolenTags[tagHash] || null;
+  }
+
+  // ========== Listings ==========
+
+  getListing(id: string): Listing | null {
+    return this.data.listings[id] || null;
+  }
+
+  setListing(listing: Listing): void {
+    this.data.listings[listing.id] = listing;
+    this.save();
+  }
+
+  deleteListing(id: string): void {
+    delete this.data.listings[id];
+    this.save();
+  }
+
+  getListingByCommitment(tagCommitment: string): Listing | null {
+    return Object.values(this.data.listings).find(
+      l => l.tagCommitment === tagCommitment && l.status !== 'delisted'
+    ) || null;
+  }
+
+  getListingByTagHash(tagHash: string): Listing | null {
+    return Object.values(this.data.listings).find(
+      l => l.tagHash === tagHash && (l.status === 'active' || l.status === 'reserved')
+    ) || null;
+  }
+
+  getListingsBySeller(sellerHash: string): Listing[] {
+    return Object.values(this.data.listings).filter(
+      l => l.sellerHash === sellerHash
+    );
+  }
+
+  getAllListings(filters?: {
+    brand?: string;
+    modelId?: number;
+    currency?: 'aleo' | 'usdcx';
+    minPrice?: number;
+    maxPrice?: number;
+    condition?: string[];
+    status?: string;
+    sort?: string;
+    page?: number;
+    limit?: number;
+  }): { listings: Listing[]; total: number; page: number; totalPages: number } {
+    let results = Object.values(this.data.listings);
+
+    // Default to active only
+    const statusFilter = filters?.status || 'active';
+    if (statusFilter !== 'all') {
+      results = results.filter(l => l.status === statusFilter);
+    }
+
+    // Filter by brand name (case-insensitive partial match)
+    if (filters?.brand) {
+      const brandLower = filters.brand.toLowerCase();
+      results = results.filter(l => l.brandName.toLowerCase().includes(brandLower));
+    }
+
+    // Filter by model
+    if (filters?.modelId) {
+      results = results.filter(l => l.modelId === filters.modelId);
+    }
+
+    // Filter by currency
+    if (filters?.currency) {
+      results = results.filter(l => l.currency === filters.currency);
+    }
+
+    // Filter by price range
+    if (filters?.minPrice !== undefined) {
+      results = results.filter(l => l.price >= filters.minPrice!);
+    }
+    if (filters?.maxPrice !== undefined) {
+      results = results.filter(l => l.price <= filters.maxPrice!);
+    }
+
+    // Filter by condition
+    if (filters?.condition && filters.condition.length > 0) {
+      results = results.filter(l => filters.condition!.includes(l.condition));
+    }
+
+    // Sort
+    switch (filters?.sort) {
+      case 'price_asc':
+        results.sort((a, b) => a.price - b.price);
+        break;
+      case 'price_desc':
+        results.sort((a, b) => b.price - a.price);
+        break;
+      case 'oldest':
+        results.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        break;
+      case 'newest':
+      default:
+        results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        break;
+    }
+
+    const total = results.length;
+    const limit = Math.min(filters?.limit || 20, 50);
+    const page = filters?.page || 1;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const offset = (page - 1) * limit;
+
+    results = results.slice(offset, offset + limit);
+
+    return { listings: results, total, page, totalPages };
   }
 }

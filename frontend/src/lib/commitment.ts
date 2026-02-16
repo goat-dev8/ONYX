@@ -18,23 +18,21 @@ let wasmModule: any = null;
 let wasmLoaded = false;
 
 /**
- * Load the @provablehq/wasm module (lazy, cached).
- * Falls back gracefully if the module is not available.
+ * Load the @provablehq/wasm or @provablehq/sdk module (lazy, cached).
+ * Falls back gracefully if unavailable.
  */
 async function loadWasm() {
   if (wasmLoaded) return wasmModule;
-  // Try @provablehq/wasm first, then fall back to @provablehq/sdk
   try {
     wasmModule = await import('@provablehq/wasm');
     wasmLoaded = true;
-    console.log('[Commitment] Loaded @provablehq/wasm');
+    console.log('[Commitment] Loaded @provablehq/wasm, exports:', Object.keys(wasmModule).filter(k => /bhp|field/i.test(k)).join(', '));
     return wasmModule;
   } catch {
-    // @provablehq/wasm not available — try @provablehq/sdk
     try {
       wasmModule = await import('@provablehq/sdk');
       wasmLoaded = true;
-      console.log('[Commitment] Loaded @provablehq/sdk as fallback');
+      console.log('[Commitment] Loaded @provablehq/sdk, exports:', Object.keys(wasmModule).filter(k => /bhp|field/i.test(k)).join(', '));
       return wasmModule;
     } catch {
       console.warn('[Commitment] Neither @provablehq/wasm nor @provablehq/sdk available');
@@ -45,53 +43,105 @@ async function loadWasm() {
 }
 
 /**
- * Compute BHP256::hash_to_field(value) client-side.
- * Matches the Leo contract's BHP256::hash_to_field(tag_hash).
+ * Try to compute BHP256 using WASM/SDK in the browser.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function tryWasmBHP256(wasm: any, input: string): string | null {
+  // Strategy 1: BHP256 class + Field→bits (correct API for @provablehq/sdk ≥0.9)
+  if (wasm?.BHP256 && wasm?.Field?.fromString) {
+    try {
+      const field = wasm.Field.fromString(input);
+      const bits = field.toBitsLe();
+      const hasher = new wasm.BHP256();
+      const result = hasher.hash(bits);
+      const resultStr = result?.toString();
+      if (resultStr && resultStr !== '0field') {
+        console.log('[Commitment] BHP256 via Field→bits:', resultStr.substring(0, 40) + '...');
+        return resultStr;
+      }
+    } catch (e) {
+      console.warn('[Commitment] BHP256+Field failed:', e);
+    }
+  }
+
+  // Strategy 2: Direct hash functions (older WASM builds)
+  const directFns = [
+    wasm?.hash_bhp256,
+    wasm?.hashBHP256,
+    wasm?.Address?.hash_bhp256,
+    wasm?.default?.hash_bhp256,
+    wasm?.Hasher?.bhp256,
+  ];
+  for (const fn of directFns) {
+    if (typeof fn === 'function') {
+      try {
+        const result = fn(input);
+        if (result) return String(result);
+      } catch { /* try next */ }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Fallback: compute BHP256 on the backend server.
+ * The backend has @provablehq/sdk running in Node.js where WASM works reliably.
+ */
+async function computeViaBackend(fieldValue: string): Promise<string | null> {
+  const backendBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+  try {
+    const res = await fetch(`${backendBase}/artifacts/compute-commitment/${encodeURIComponent(fieldValue)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.commitment) {
+        console.log('[Commitment] Got commitment from backend:', data.commitment.substring(0, 40) + '...');
+        return data.commitment;
+      }
+    }
+  } catch (e) {
+    console.warn('[Commitment] Backend fallback failed:', e);
+  }
+  return null;
+}
+
+/**
+ * Compute BHP256::hash_to_field(value) — matches the Leo contract.
+ *
+ * Strategy order:
+ *   1. Client-side WASM (fastest, no network)
+ *   2. Backend API fallback (reliable, works in all browsers)
  *
  * @param fieldValue - The field value to hash (e.g., "123456field" or "123456")
- * @returns The BHP256 hash as a field string, or null if computation fails
+ * @returns The BHP256 hash as a field string, or null if all strategies fail
  */
 export async function computeBHP256Commitment(fieldValue: string): Promise<string | null> {
-  // Normalize input to field format
-  const input = fieldValue.endsWith('field') ? fieldValue : `${fieldValue}field`;
-
-  try {
-    const wasm = await loadWasm();
-
-    // Try multiple WASM API signatures (varies by @provablehq/wasm version)
-    if (wasm?.hash_bhp256) {
-      return wasm.hash_bhp256(input);
-    }
-    if (wasm?.hashBHP256) {
-      return wasm.hashBHP256(input);
-    }
-    if (wasm?.Address?.hash_bhp256) {
-      return wasm.Address.hash_bhp256(input);
-    }
-    // @provablehq/sdk may expose BHP256 via different paths
-    if (wasm?.default?.hash_bhp256) {
-      return wasm.default.hash_bhp256(input);
-    }
-    if (wasm?.Hasher?.bhp256) {
-      return wasm.Hasher.bhp256(input);
-    }
-    // Try Plaintext-based hashing via SDK
-    if (wasm?.Plaintext) {
-      try {
-        // Some SDK versions expose hash through Plaintext utility
-        const result = wasm.Plaintext.hash_bhp256(input);
-        if (result) return result;
-      } catch { /* continue */ }
-    }
-
-    // If no BHP256 function found in WASM/SDK
-    console.warn('[Commitment] BHP256 not available in WASM/SDK — use API fallback');
-    return null;
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  } catch (_e) {
-    console.warn('[Commitment] BHP256 computation failed — use API fallback');
+  if (!fieldValue || fieldValue.trim() === '') {
+    console.warn('[Commitment] Empty field value');
     return null;
   }
+
+  const input = fieldValue.endsWith('field') ? fieldValue : `${fieldValue}field`;
+  console.log('[Commitment] Computing BHP256 for:', input);
+
+  // Strategy 1: Client-side WASM
+  try {
+    const wasm = await loadWasm();
+    if (wasm) {
+      const result = tryWasmBHP256(wasm, input);
+      if (result) return result;
+      console.warn('[Commitment] WASM strategies failed, trying backend...');
+    }
+  } catch (e) {
+    console.warn('[Commitment] WASM error:', e);
+  }
+
+  // Strategy 2: Backend API fallback
+  const backendResult = await computeViaBackend(fieldValue);
+  if (backendResult) return backendResult;
+
+  console.warn('[Commitment] All BHP256 strategies failed for:', input);
+  return null;
 }
 
 /**

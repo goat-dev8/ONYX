@@ -9,6 +9,7 @@ import authRoutes from './routes/auth';
 import brandsRoutes from './routes/brands';
 import artifactsRoutes from './routes/artifacts';
 import verifyRoutes from './routes/verify';
+import listingsRoutes from './routes/listings';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -36,6 +37,7 @@ app.use('/auth', authLimiter, authRoutes);
 app.use('/brands', brandsRoutes);
 app.use('/artifacts', artifactsRoutes);
 app.use('/verify', verifyRoutes);
+app.use('/listings', listingsRoutes);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -49,4 +51,13 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 app.listen(PORT, () => {
   console.log(`[Server] Running on port ${PORT}`);
   console.log(`[Server] CORS origin: ${CORS_ORIGIN}`);
+
+  // Pre-load @provablehq/sdk for BHP256 computation (takes a few seconds)
+  import('./services/bhp256').then(({ initBHP256 }) => {
+    initBHP256().then((ok) => {
+      console.log(`[Server] BHP256 service: ${ok ? 'ready' : 'unavailable'}`);
+    });
+  }).catch(() => {
+    console.warn('[Server] BHP256 service not available');
+  });
 });

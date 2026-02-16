@@ -16,6 +16,40 @@ export interface Artifact {
   ownerHash?: string; // SHA-256 hash of owner address (never store plaintext)
 }
 
+export interface Listing {
+  id: string;                    // UUID
+  tagCommitment: string;         // BHP256(tag_hash) — used for on-chain mapping lookups
+  tagHash: string;               // Raw tag_hash — needed by buyers for escrow/payment
+  brandAddress: string;          // Brand that minted it (public by design)
+  brandName: string;             // Resolved display name
+  modelId: number;               // Product line (seller opts in to share)
+  title: string;                 // e.g. "Rolex Submariner Date"
+  description: string;           // Seller-written description
+  condition: 'new' | 'like_new' | 'good' | 'fair';
+  imageUrl?: string;             // Optional product photo URL
+  price: number;                 // Asking price (microcredits for ALEO, token units for USDCx)
+  currency: 'aleo' | 'usdcx';   // Payment type
+  sellerHash: string;            // SHA-256(seller_address) — NEVER raw address
+  status: 'active' | 'reserved' | 'sold' | 'delisted';
+  createdAt: string;             // ISO timestamp
+  updatedAt: string;             // ISO timestamp
+  onChainMinted: boolean;        // tag_uniqueness[commitment] === true (cached)
+  onChainStolen: boolean;        // stolen_commitments[commitment] === true (cached)
+  lastVerifiedAt: string;        // When on-chain status was last checked
+}
+
+export interface ListingCreate {
+  tagCommitment: string;
+  tagHash: string;
+  modelId: number;
+  title: string;
+  description: string;
+  condition: 'new' | 'like_new' | 'good' | 'fair';
+  imageUrl?: string;
+  price: number;
+  currency: 'aleo' | 'usdcx';
+}
+
 export interface ResaleProof {
   token: string;
   tagHash: string;
@@ -25,7 +59,7 @@ export interface ResaleProof {
 }
 
 export interface EventLog {
-  type: 'mint' | 'transfer' | 'stolen' | 'proof';
+  type: 'mint' | 'transfer' | 'stolen' | 'proof' | 'listing';
   at: string;
   data: Record<string, unknown>;
 }
@@ -33,6 +67,7 @@ export interface EventLog {
 export interface Database {
   brands: Record<string, Brand>;
   artifacts: Record<string, Artifact>;
+  listings: Record<string, Listing>;
   proofs: ResaleProof[];
   nonces: Record<string, string>;
   events: EventLog[];

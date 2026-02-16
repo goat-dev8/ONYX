@@ -39,3 +39,67 @@ export interface User {
   brandName?: string;
   token: string;
 }
+
+// ========== Marketplace Listings ==========
+
+export interface Listing {
+  id: string;
+  tagCommitment: string;
+  tagHash: string;
+  brandName: string;
+  brandAddress: string;
+  modelId: number;
+  title: string;
+  description: string;
+  condition: 'new' | 'like_new' | 'good' | 'fair';
+  imageUrl?: string;
+  price: number;
+  currency: 'aleo' | 'usdcx';
+  status: 'active' | 'reserved' | 'sold' | 'delisted';
+  createdAt: string;
+  updatedAt: string;
+  onChainMinted: boolean;
+  onChainStolen: boolean;
+  lastVerifiedAt: string;
+}
+
+export interface ListingsResponse {
+  listings: Listing[];
+  total: number;
+  page: number;
+  totalPages: number;
+  privacyNotice?: string;
+}
+
+export interface ListingFilters {
+  brand?: string;
+  model?: number;
+  currency?: 'aleo' | 'usdcx';
+  minPrice?: number;
+  maxPrice?: number;
+  condition?: string[];
+  sort?: 'price_asc' | 'price_desc' | 'newest' | 'oldest';
+  page?: number;
+  limit?: number;
+}
+
+export interface ListingCreate {
+  tagCommitment: string;
+  tagHash: string;
+  modelId: number;
+  title: string;
+  description: string;
+  condition: 'new' | 'like_new' | 'good' | 'fair';
+  imageUrl?: string;
+  price: number;
+  currency: 'aleo' | 'usdcx';
+  brandAddress?: string;
+}
+
+export interface ListingVerifyResult {
+  minted: boolean;
+  stolen: boolean;
+  backendRegistered?: boolean;
+  verifiedAt: string;
+  source: string;
+}

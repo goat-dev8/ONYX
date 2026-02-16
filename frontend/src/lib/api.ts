@@ -1,3 +1,5 @@
+import type { Listing, ListingsResponse, ListingCreate, ListingFilters, ListingVerifyResult } from './types';
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 function getAuthToken(): string | null {
@@ -168,5 +170,79 @@ export const api = {
       };
       error?: string;
     }>(response);
+  },
+
+  // ========== Marketplace Listings ==========
+
+  async getListings(filters: ListingFilters = {}) {
+    const params = new URLSearchParams();
+    if (filters.brand) params.set('brand', filters.brand);
+    if (filters.model) params.set('model', String(filters.model));
+    if (filters.currency) params.set('currency', filters.currency);
+    if (filters.minPrice) params.set('minPrice', String(filters.minPrice));
+    if (filters.maxPrice) params.set('maxPrice', String(filters.maxPrice));
+    if (filters.condition?.length) {
+      params.set('condition', filters.condition.join(','));
+    }
+    if (filters.sort) params.set('sort', filters.sort);
+    if (filters.page) params.set('page', String(filters.page));
+    if (filters.limit) params.set('limit', String(filters.limit));
+
+    const qs = params.toString();
+    const url = `${API_BASE_URL}/listings${qs ? `?${qs}` : ''}`;
+    const response = await fetch(url);
+    return handleResponse<ListingsResponse>(response);
+  },
+
+  async getListing(id: string) {
+    const response = await fetch(`${API_BASE_URL}/listings/${encodeURIComponent(id)}`);
+    return handleResponse<Listing>(response);
+  },
+
+  async createListing(data: ListingCreate) {
+    const response = await fetch(`${API_BASE_URL}/listings`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ success: boolean; listing: Listing }>(response);
+  },
+
+  async updateListing(id: string, data: Record<string, unknown>) {
+    const response = await fetch(`${API_BASE_URL}/listings/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ success: boolean; listing: Listing }>(response);
+  },
+
+  async deleteListing(id: string) {
+    const response = await fetch(`${API_BASE_URL}/listings/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    return handleResponse<{ success: boolean; message: string }>(response);
+  },
+
+  async verifyListing(id: string) {
+    const response = await fetch(`${API_BASE_URL}/listings/${encodeURIComponent(id)}/verify`);
+    return handleResponse<ListingVerifyResult>(response);
+  },
+
+  async getMyListings() {
+    const response = await fetch(`${API_BASE_URL}/listings/my/all`, {
+      headers: authHeaders(),
+    });
+    return handleResponse<{ listings: Listing[]; count: number }>(response);
+  },
+
+  async completeSale(data: { tagHash: string; txId: string; paymentMethod: 'escrow' | 'usdcx' }) {
+    const response = await fetch(`${API_BASE_URL}/listings/complete-sale`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ success: boolean; listingId: string; status: string; message: string }>(response);
   },
 };

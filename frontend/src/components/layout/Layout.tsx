@@ -10,6 +10,7 @@ import {
   DiamondIcon,
   MintIcon,
   ShieldIcon,
+  MarketplaceIcon,
 } from '../icons/Icons';
 import { useUserStore } from '../../stores/userStore';
 
@@ -23,6 +24,7 @@ const navItems = [
   { path: '/mint', label: 'Mint', icon: MintIcon },
   { path: '/scan', label: 'Scan', icon: ScanIcon },
   { path: '/escrow', label: 'Escrow', icon: ShieldIcon },
+  { path: '/marketplace', label: 'Market', icon: MarketplaceIcon },
 ];
 
 // Clear wallet adapter cached state

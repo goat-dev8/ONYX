@@ -355,6 +355,48 @@ export const LogoIcon: FC<IconProps> = ({ className = '', size = 40 }) => (
   </svg>
 );
 
+export const MarketplaceIcon: FC<IconProps> = ({ className = '', size = 24 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    className={className}
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      d="M3 9l1.5-5h15L21 9"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M3 9h18v11a1 1 0 01-1 1H4a1 1 0 01-1-1V9z"
+      stroke="currentColor"
+      strokeWidth="1.5"
+    />
+    <path
+      d="M9 9v3a3 3 0 006 0V9"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+    <path
+      d="M3 9v3a3 3 0 006 0V9"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+    <path
+      d="M15 9v3a3 3 0 006 0V9"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
 export const MintIcon: FC<IconProps> = ({ className = '', size = 24 }) => (
   <svg
     width={size}

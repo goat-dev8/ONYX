@@ -9,6 +9,7 @@ import {
   TransferIcon,
   StolenAlertIcon,
   ProofSealIcon,
+  MarketplaceIcon,
   LoadingSpinner,
 } from '../components/icons/Icons';
 import { Button, Card, Modal, Input, StatusBadge } from '../components/ui/Components';
@@ -18,6 +19,7 @@ import { useUserStore } from '../stores/userStore';
 import { usePendingTxStore } from '../stores/pendingTxStore';
 import { api } from '../lib/api';
 import { formatAddress, checkStolenStatus, saveLocalStolenTag } from '../lib/aleo';
+import { computeBHP256Commitment } from '../lib/commitment';
 import type { Artifact } from '../lib/types';
 
 export const Vault: FC = () => {
@@ -37,6 +39,16 @@ export const Vault: FC = () => {
   const [transferAddress, setTransferAddress] = useState('');
   const [proofSalt, setProofSalt] = useState('');
   const [generatedProof, setGeneratedProof] = useState<string | null>(null);
+
+  // Marketplace listing modal state
+  const [listingModal, setListingModal] = useState(false);
+  const [listingTitle, setListingTitle] = useState('');
+  const [listingDescription, setListingDescription] = useState('');
+  const [listingCondition, setListingCondition] = useState<'new' | 'like_new' | 'good' | 'fair'>('new');
+  const [listingPrice, setListingPrice] = useState('');
+  const [listingCurrency, setListingCurrency] = useState<'aleo' | 'usdcx'>('aleo');
+  const [listingImageUrl, setListingImageUrl] = useState('');
+  const [listingLoading, setListingLoading] = useState(false);
 
   const walletAddress = wallet.connected
     ? (wallet as unknown as { address: string }).address
@@ -316,6 +328,66 @@ export const Vault: FC = () => {
     }
   };
 
+  const handleListForSale = async () => {
+    if (!selectedArtifact || !listingTitle || !listingPrice) return;
+
+    setListingLoading(true);
+    try {
+      // Compute tag commitment (BHP256 hash of tag_hash)
+      let tagCommitment: string | null = null;
+      if (selectedArtifact.tagHash) {
+        tagCommitment = await computeBHP256Commitment(selectedArtifact.tagHash);
+      }
+      if (!tagCommitment) {
+        toast.error('Unable to compute tag commitment. Tag hash may be empty.');
+        setListingLoading(false);
+        return;
+      }
+
+      // Convert price to microcredits for ALEO
+      const priceValue = listingCurrency === 'aleo'
+        ? Math.round(parseFloat(listingPrice) * 1_000_000)
+        : parseInt(listingPrice, 10);
+
+      if (isNaN(priceValue) || priceValue <= 0) {
+        toast.error('Please enter a valid price');
+        setListingLoading(false);
+        return;
+      }
+
+      await api.createListing({
+        tagCommitment,
+        tagHash: selectedArtifact.tagHash,
+        modelId: selectedArtifact.modelId,
+        title: listingTitle.trim(),
+        description: listingDescription.trim(),
+        condition: listingCondition,
+        imageUrl: listingImageUrl.trim() || undefined,
+        price: priceValue,
+        currency: listingCurrency,
+        brandAddress: selectedArtifact.brandAddress || undefined,
+      });
+
+      toast.success('Listed on marketplace!');
+      setListingModal(false);
+      resetListingForm();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to create listing';
+      toast.error(errorMsg);
+    } finally {
+      setListingLoading(false);
+    }
+  };
+
+  const resetListingForm = () => {
+    setListingTitle('');
+    setListingDescription('');
+    setListingCondition('new');
+    setListingPrice('');
+    setListingCurrency('aleo');
+    setListingImageUrl('');
+  };
+
   if (!wallet.connected) {
     return (
       <div className="mx-auto max-w-4xl py-20 text-center">
@@ -495,6 +567,18 @@ export const Vault: FC = () => {
                     >
                       <ProofSealIcon size={18} className="mx-auto" />
                     </button>
+                    <button
+                      onClick={() => {
+                        setSelectedArtifact(artifact);
+                        resetListingForm();
+                        setListingModal(true);
+                      }}
+                      disabled={artifact.stolen || !artifact._fromWallet || !artifact.tagHash}
+                      className="flex-1 rounded-lg border border-white/10 bg-white/5 p-2 text-white/60 transition-all hover:border-emerald-500/30 hover:text-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+                      title="List for Sale"
+                    >
+                      <MarketplaceIcon size={18} className="mx-auto" />
+                    </button>
                   </div>
                 </Card>
               </motion.div>
@@ -611,6 +695,145 @@ export const Vault: FC = () => {
               </Button>
             </>
           )}
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={listingModal}
+        onClose={() => setListingModal(false)}
+        title="List for Sale"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-white/50">
+            List this item on the marketplace. Your identity remains hidden — only
+            the metadata you provide below will be public.
+          </p>
+
+          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+            <p className="text-xs text-emerald-400/80">
+              <strong>Privacy:</strong> Your wallet address, tag hash, and serial number
+              are never revealed to buyers. The listing uses a zero-knowledge commitment.
+            </p>
+          </div>
+
+          <Input
+            label="Title"
+            placeholder="e.g., Rolex Submariner Date 41mm"
+            value={listingTitle}
+            onChange={setListingTitle}
+          />
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-white/60">
+              Description
+            </label>
+            <textarea
+              placeholder="Describe the item's condition, history, and any notable features..."
+              value={listingDescription}
+              onChange={(e) => setListingDescription(e.target.value)}
+              rows={3}
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm
+                       text-white placeholder-white/30 outline-none transition-colors
+                       focus:border-champagne-500/40 focus:bg-white/[0.07] resize-none"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-white/60">
+              Condition
+            </label>
+            <div className="flex gap-2">
+              {([
+                { value: 'new', label: 'New' },
+                { value: 'like_new', label: 'Like New' },
+                { value: 'good', label: 'Good' },
+                { value: 'fair', label: 'Fair' },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setListingCondition(opt.value)}
+                  className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-all ${
+                    listingCondition === opt.value
+                      ? 'border-champagne-500/30 bg-champagne-500/15 text-champagne-300'
+                      : 'border-white/10 bg-white/5 text-white/40 hover:border-white/20 hover:text-white/60'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-white/60">
+                Price
+              </label>
+              <input
+                type="number"
+                step={listingCurrency === 'aleo' ? '0.01' : '1'}
+                min="0"
+                placeholder={listingCurrency === 'aleo' ? '0.00' : '0'}
+                value={listingPrice}
+                onChange={(e) => setListingPrice(e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm
+                         text-white placeholder-white/30 outline-none transition-colors
+                         focus:border-champagne-500/40 focus:bg-white/[0.07]"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-white/60">
+                Currency
+              </label>
+              <div className="flex h-[46px] overflow-hidden rounded-lg border border-white/10">
+                <button
+                  onClick={() => setListingCurrency('aleo')}
+                  className={`flex-1 text-xs font-medium transition-all ${
+                    listingCurrency === 'aleo'
+                      ? 'bg-champagne-500/20 text-champagne-300'
+                      : 'bg-white/[0.02] text-white/40 hover:bg-white/5'
+                  }`}
+                >
+                  ALEO
+                </button>
+                <button
+                  onClick={() => setListingCurrency('usdcx')}
+                  className={`flex-1 text-xs font-medium transition-all ${
+                    listingCurrency === 'usdcx'
+                      ? 'bg-champagne-500/20 text-champagne-300'
+                      : 'bg-white/[0.02] text-white/40 hover:bg-white/5'
+                  }`}
+                >
+                  USDCx
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <Input
+            label="Image URL (optional)"
+            placeholder="https://..."
+            value={listingImageUrl}
+            onChange={setListingImageUrl}
+          />
+
+          <div className="flex gap-3 pt-1">
+            <Button
+              variant="secondary"
+              onClick={() => setListingModal(false)}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleListForSale}
+              disabled={!listingTitle.trim() || listingTitle.trim().length < 3 || !listingPrice || !listingDescription.trim() || listingDescription.trim().length < 10}
+              loading={listingLoading}
+              className="flex-1"
+            >
+              List for Sale
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

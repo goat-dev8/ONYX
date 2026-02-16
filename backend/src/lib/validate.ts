@@ -57,3 +57,26 @@ export const verifyProofSchema = z.object({
   token: z.string().min(1),
   txId: txIdSchema
 });
+
+// ========== Marketplace Listings ==========
+
+export const createListingSchema = z.object({
+  tagCommitment: z.string().min(1).regex(/^[0-9]+field$/, 'Must be a valid field element (e.g. 12345field)'),
+  tagHash: z.string().min(1),
+  modelId: z.number().int().positive(),
+  title: z.string().min(3).max(200),
+  description: z.string().min(10).max(2000),
+  condition: z.enum(['new', 'like_new', 'good', 'fair']),
+  imageUrl: z.string().url().optional(),
+  price: z.number().int().positive(),
+  currency: z.enum(['aleo', 'usdcx']),
+});
+
+export const updateListingSchema = z.object({
+  price: z.number().int().positive().optional(),
+  title: z.string().min(3).max(200).optional(),
+  description: z.string().min(10).max(2000).optional(),
+  condition: z.enum(['new', 'like_new', 'good', 'fair']).optional(),
+  imageUrl: z.string().url().optional().nullable(),
+  status: z.enum(['active', 'delisted']).optional(),
+});

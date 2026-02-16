@@ -295,4 +295,31 @@ router.get('/:tagHash', (req: Request, res: Response): void => {
   }
 });
 
+// v4: Compute BHP256 commitment for a field value (server-side)
+// The frontend WASM may not initialize in all browsers, so this provides
+// a reliable server-side fallback using pre-loaded @provablehq/sdk.
+router.get('/compute-commitment/:fieldValue', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { fieldValue } = req.params;
+    if (!fieldValue) {
+      res.status(400).json({ error: 'Field value is required' });
+      return;
+    }
+
+    const { computeBHP256 } = await import('../services/bhp256');
+    const commitment = await computeBHP256(fieldValue);
+
+    if (!commitment) {
+      res.status(500).json({ error: 'Failed to compute BHP256 commitment' });
+      return;
+    }
+
+    console.log('[Artifacts] BHP256:', fieldValue, '->', commitment.substring(0, 40) + '...');
+    res.json({ commitment, input: fieldValue, source: 'server-side-sdk' });
+  } catch (err) {
+    console.error('[Artifacts] Compute commitment error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;

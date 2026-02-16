@@ -2,6 +2,7 @@ import { FC, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import { useWalletModal } from '@provablehq/aleo-wallet-adaptor-react-ui';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   ShieldIcon,
@@ -16,6 +17,7 @@ import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
 import { usePendingTxStore } from '../stores/pendingTxStore';
 import { formatAddress } from '../lib/aleo';
+import { api } from '../lib/api';
 
 type EscrowMode = 'create' | 'manage';
 
@@ -30,6 +32,7 @@ interface EscrowState {
 export const Escrow: FC = () => {
   const wallet = useWallet();
   const { setVisible: openWalletModal } = useWalletModal();
+  const [searchParams] = useSearchParams();
   const {
     authenticate,
     executeCreateEscrow,
@@ -53,6 +56,29 @@ export const Escrow: FC = () => {
   const [sellerAddress, setSellerAddress] = useState('');
   const [tokenType, setTokenType] = useState<'aleo' | 'usdcx'>('aleo');
   const [escrowResult, setEscrowResult] = useState<EscrowState | null>(null);
+  const [buyTitle, setBuyTitle] = useState<string | null>(null);
+
+  // Pre-fill from URL query params (from marketplace "Buy with Escrow")
+  useEffect(() => {
+    const qTagHash = searchParams.get('tagHash');
+    const qAmount = searchParams.get('amount');
+    const qCurrency = searchParams.get('currency');
+    const qTitle = searchParams.get('title');
+    const qSeller = searchParams.get('seller');
+    if (qTagHash) setTagHash(qTagHash);
+    if (qAmount) {
+      // Amount comes as microcredits for ALEO, convert to ALEO
+      const numAmount = parseInt(qAmount, 10);
+      if (!isNaN(numAmount) && numAmount > 1000) {
+        setAmount(String(numAmount / 1_000_000));
+      } else {
+        setAmount(qAmount);
+      }
+    }
+    if (qCurrency === 'usdcx') setTokenType('usdcx');
+    if (qTitle) setBuyTitle(qTitle);
+    if (qSeller) setSellerAddress(qSeller);
+  }, [searchParams]);
 
   // Manage state — escrow receipts from wallet
   const [escrowReceipts, setEscrowReceipts] = useState<unknown[]>([]);
@@ -142,6 +168,14 @@ export const Escrow: FC = () => {
           seller: sellerAddress,
           txId,
         });
+
+        // Mark the listing as sold (USDCx is instant payment)
+        try {
+          await api.completeSale({ tagHash, txId, paymentMethod: 'usdcx' });
+          console.log('[Escrow] USDCx sale completed for tagHash:', tagHash);
+        } catch (err) {
+          console.warn('[Escrow] Could not mark USDCx sale as complete:', err);
+        }
       }
       return;
     }
@@ -170,12 +204,27 @@ export const Escrow: FC = () => {
   };
 
   const handleRelease = async (receipt: unknown) => {
+    // Extract tag_hash from receipt data for sale completion
+    const r = receipt as { data?: { tag_hash?: string } };
+    const receiptTagHash = r.data?.tag_hash?.replace(/\.private$/, '').replace(/\.public$/, '').replace(/field$/, '').trim();
+
     const txId = await executeReleaseEscrow(
       receipt as { _plaintext?: string; _raw?: { id?: string; ciphertext?: string } }
     );
     if (txId) {
       addPendingTx({ id: txId, type: 'release_escrow', meta: {} });
       setActionResult({ action: 'released', txId });
+
+      // Mark the listing as sold in the backend
+      if (receiptTagHash) {
+        try {
+          await api.completeSale({ tagHash: receiptTagHash, txId, paymentMethod: 'escrow' });
+          console.log('[Escrow] Sale completed for tagHash:', receiptTagHash);
+        } catch (err) {
+          console.warn('[Escrow] Could not mark sale as complete:', err);
+        }
+      }
+
       loadEscrowReceipts();
     }
   };
@@ -242,9 +291,23 @@ export const Escrow: FC = () => {
           <h1 className="mb-4 font-heading text-3xl font-bold text-white">
             Credit Escrow
           </h1>
-          <p className="mb-8 text-white/50">
-            Connect your wallet to create or manage escrow deposits
-          </p>
+          {buyTitle ? (
+            <div className="mb-6">
+              <p className="mb-2 text-white/50">Connect your wallet to purchase:</p>
+              <div className="rounded-xl border border-champagne-500/20 bg-champagne-500/5 p-4">
+                <p className="font-heading text-lg font-bold text-white">{buyTitle}</p>
+                {amount && (
+                  <p className="mt-1 text-sm text-champagne-400">
+                    {amount} {tokenType === 'usdcx' ? 'USDCx' : 'ALEO'}
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="mb-8 text-white/50">
+              Connect your wallet to create or manage escrow deposits
+            </p>
+          )}
           <Button onClick={() => openWalletModal(true)} size="lg">
             Connect Wallet
           </Button>
@@ -385,24 +448,52 @@ export const Escrow: FC = () => {
               <CheckCircleIcon size={64} className="mx-auto mb-4 text-champagne-400" />
               <h2 className="font-heading text-2xl font-bold gold-gradient-text">
                 {actionResult.action === 'released'
-                  ? 'Credits Released to Seller'
+                  ? 'Purchase Complete!'
                   : 'Credits Refunded to You'}
               </h2>
+              <p className="mt-2 text-sm text-white/50">
+                {actionResult.action === 'released'
+                  ? 'Credits have been released to the seller. The item listing has been marked as sold.'
+                  : 'Your credits have been returned to your wallet as private credits.'}
+              </p>
             </div>
 
-            <div className="mb-6">
+            <div className="mb-6 space-y-3">
               <TransactionIdDisplay txId={actionResult.txId} />
+
+              {actionResult.action === 'released' && (
+                <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-4 text-sm text-green-400">
+                  <p className="font-medium">What happened:</p>
+                  <ul className="mt-2 space-y-1 text-xs text-green-400/80">
+                    <li>&#x2022; Credits sent to seller as private credits</li>
+                    <li>&#x2022; Listing removed from marketplace</li>
+                    <li>&#x2022; Item ownership transferred in ONYX system</li>
+                    <li>&#x2022; The item record will appear in your vault</li>
+                  </ul>
+                </div>
+              )}
             </div>
 
-            <Button
-              onClick={() => {
-                setActionResult(null);
-                loadEscrowReceipts();
-              }}
-              className="w-full"
-            >
-              Back to Escrows
-            </Button>
+            <div className="flex gap-3">
+              <Button
+                onClick={() => {
+                  setActionResult(null);
+                  loadEscrowReceipts();
+                }}
+                variant="secondary"
+                className="flex-1"
+              >
+                Back to Escrows
+              </Button>
+              {actionResult.action === 'released' && (
+                <Button
+                  onClick={() => window.location.href = '/vault'}
+                  className="flex-1"
+                >
+                  Go to Vault
+                </Button>
+              )}
+            </div>
           </Card>
         </motion.div>
       </div>
@@ -436,6 +527,17 @@ export const Escrow: FC = () => {
             exit={{ opacity: 0 }}
           >
             <Card>
+              {/* Pre-filled from marketplace */}
+              {buyTitle && (
+                <div className="mb-6 rounded-xl border border-champagne-500/20 bg-champagne-500/5 p-4">
+                  <p className="text-xs font-medium text-champagne-400">Purchasing from Marketplace</p>
+                  <p className="mt-1 font-heading text-lg font-bold text-white">{buyTitle}</p>
+                  <p className="mt-1 text-xs text-white/40">
+                    Tag hash and amount have been pre-filled. Enter the seller address to proceed.
+                  </p>
+                </div>
+              )}
+
               <div className="mb-6 text-center">
                 <div className="mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5">
                   <WalletIcon size={32} className="text-champagne-400" />
