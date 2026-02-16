@@ -17,6 +17,7 @@ import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
 import { api } from '../lib/api';
 import { formatAddress } from '../lib/aleo';
+import { TransactionIdDisplay } from '../components/ui/PendingTx';
 import type { Artifact } from '../lib/types';
 
 export const Prove: FC = () => {
@@ -440,12 +441,7 @@ export const Prove: FC = () => {
                 </code>
               </div>
 
-              <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-                <p className="mb-1 text-xs text-white/40">Transaction</p>
-                <p className="break-all font-mono text-sm text-white">
-                  {formatAddress(generatedProof.txId, 12)}
-                </p>
-              </div>
+              <TransactionIdDisplay txId={generatedProof.txId} />
 
               <p className="text-center text-sm text-white/40">
                 Share this proof token with potential buyers so they can verify

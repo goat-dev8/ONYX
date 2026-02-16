@@ -11,8 +11,10 @@ import {
   WalletIcon,
 } from '../components/icons/Icons';
 import { Button, Card, Input, StatusBadge } from '../components/ui/Components';
+import { PendingTxBanner, PendingTxCard, TransactionIdDisplay } from '../components/ui/PendingTx';
 import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
+import { usePendingTxStore } from '../stores/pendingTxStore';
 import { formatAddress } from '../lib/aleo';
 
 type EscrowMode = 'create' | 'manage';
@@ -40,6 +42,7 @@ export const Escrow: FC = () => {
 
   const MICROCREDITS_PER_ALEO = 1_000_000;
   const { isAuthenticated } = useUserStore();
+  const { addPendingTx, hasPendingOfType, getPendingByType } = usePendingTxStore();
 
   const [mode, setMode] = useState<EscrowMode>('create');
   const [localLoading, setLocalLoading] = useState(false);
@@ -126,6 +129,12 @@ export const Escrow: FC = () => {
       const tagHashField = tagHash.endsWith('field') ? tagHash : `${tagHash}field`;
       const txId = await executePayVerificationUsdcx(tagHashField, amountMicroUsdcx, sellerAddress);
       if (txId) {
+        addPendingTx({
+          id: txId,
+          type: 'pay_usdcx',
+          meta: { tagHash, amount: `${amountAleo} USDCx`, seller: sellerAddress },
+        });
+
         setEscrowResult({
           escrowId: 'usdcx-direct',
           tagHash,
@@ -143,6 +152,13 @@ export const Escrow: FC = () => {
     const escrowSalt = Math.floor(Math.random() * 1000000000).toString();
     const result = await executeCreateEscrow(tagHash, amountMicrocredits, sellerAddress, escrowSalt);
     if (result) {
+      // Track as pending so Manage Escrows shows it while confirming
+      addPendingTx({
+        id: result.txId,
+        type: 'create_escrow',
+        meta: { tagHash, amount: `${amountAleo} ALEO`, seller: sellerAddress },
+      });
+
       setEscrowResult({
         escrowId: result.escrowId || 'pending',
         tagHash,
@@ -158,6 +174,7 @@ export const Escrow: FC = () => {
       receipt as { _plaintext?: string; _raw?: { id?: string; ciphertext?: string } }
     );
     if (txId) {
+      addPendingTx({ id: txId, type: 'release_escrow', meta: {} });
       setActionResult({ action: 'released', txId });
       loadEscrowReceipts();
     }
@@ -168,6 +185,7 @@ export const Escrow: FC = () => {
       receipt as { _plaintext?: string; _raw?: { id?: string; ciphertext?: string } }
     );
     if (txId) {
+      addPendingTx({ id: txId, type: 'refund_escrow', meta: {} });
       setActionResult({ action: 'refunded', txId });
       loadEscrowReceipts();
     }
@@ -310,12 +328,7 @@ export const Escrow: FC = () => {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-                <p className="mb-1 text-xs text-white/40">Transaction</p>
-                <p className="break-all font-mono text-sm text-white">
-                  {formatAddress(escrowResult.txId, 12)}
-                </p>
-              </div>
+              <TransactionIdDisplay txId={escrowResult.txId} />
 
               <div className="rounded-lg border border-champagne-500/20 bg-champagne-500/5 p-4">
                 <p className="text-sm text-champagne-400">
@@ -377,11 +390,8 @@ export const Escrow: FC = () => {
               </h2>
             </div>
 
-            <div className="mb-6 rounded-lg border border-white/10 bg-white/5 p-4">
-              <p className="mb-1 text-xs text-white/40">Transaction</p>
-              <p className="break-all font-mono text-sm text-white">
-                {formatAddress(actionResult.txId, 12)}
-              </p>
+            <div className="mb-6">
+              <TransactionIdDisplay txId={actionResult.txId} />
             </div>
 
             <Button
@@ -535,11 +545,17 @@ export const Escrow: FC = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
+            {/* Pending transaction banners */}
+            <PendingTxBanner
+              types={['create_escrow', 'release_escrow', 'refund_escrow', 'pay_usdcx']}
+              onConfirmed={() => loadEscrowReceipts()}
+            />
+
             {localLoading ? (
               <div className="flex items-center justify-center py-20">
                 <LoadingSpinner size={48} className="text-champagne-400" />
               </div>
-            ) : escrowReceipts.length === 0 ? (
+            ) : escrowReceipts.length === 0 && !hasPendingOfType('create_escrow') ? (
               <Card className="text-center">
                 <DiamondIcon size={48} className="mx-auto mb-4 text-white/20" />
                 <p className="mb-2 text-white/50">No active escrow receipts</p>
@@ -556,6 +572,11 @@ export const Escrow: FC = () => {
               </Card>
             ) : (
               <div className="space-y-4">
+                {/* Show pending escrow cards */}
+                {getPendingByType('create_escrow').map((ptx) => (
+                  <PendingTxCard key={ptx.id} tx={ptx} />
+                ))}
+
                 {escrowReceipts.map((receipt, index) => {
                   const r = receipt as {
                     data?: {

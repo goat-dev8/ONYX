@@ -99,27 +99,29 @@ export const Modal: FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
             onClick={onClose}
             className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm"
           />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 px-4"
-          >
-            <div className="glass-card gold-border overflow-hidden">
-              <div className="flex items-center justify-between border-b border-white/10 p-4">
-                <h3 className="font-heading text-lg font-semibold gold-gradient-text">
-                  {title}
-                </h3>
-                <button
-                  onClick={onClose}
-                  className="rounded-lg p-2 text-white/40 transition-colors hover:bg-white/5 hover:text-white"
-                >
-                  <XCircleIcon size={20} />
-                </button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none px-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-lg pointer-events-auto"
+            >
+              <div className="glass-card gold-border overflow-hidden">
+                <div className="flex items-center justify-between border-b border-white/10 p-4">
+                  <h3 className="font-heading text-lg font-semibold gold-gradient-text">
+                    {title}
+                  </h3>
+                  <button
+                    onClick={onClose}
+                    className="rounded-lg p-2 text-white/40 transition-colors hover:bg-white/5 hover:text-white"
+                  >
+                    <XCircleIcon size={20} />
+                  </button>
+                </div>
+                <div className="p-6">{children}</div>
               </div>
-              <div className="p-6">{children}</div>
-            </div>
-          </motion.div>
+            </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>

@@ -15,6 +15,7 @@ import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
 import { api } from '../lib/api';
 import { formatAddress } from '../lib/aleo';
+import { TransactionIdDisplay } from '../components/ui/PendingTx';
 import type { Artifact } from '../lib/types';
 
 export const Transfer: FC = () => {
@@ -211,12 +212,7 @@ export const Transfer: FC = () => {
                   {formatAddress(transferComplete.to, 10)}
                 </p>
               </div>
-              <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-                <p className="mb-1 text-xs text-white/40">Transaction</p>
-                <p className="break-all font-mono text-sm text-white">
-                  {formatAddress(transferComplete.txId, 12)}
-                </p>
-              </div>
+              <TransactionIdDisplay txId={transferComplete.txId} />
             </div>
 
             <Button onClick={resetTransfer} className="w-full">

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import toast from 'react-hot-toast';
 import { api } from '../lib/api';
@@ -11,6 +11,7 @@ import {
   findSuitableUsdcxRecord,
 } from '../lib/usdcx';
 import { useUserStore } from '../stores/userStore';
+import { usePendingTxStore } from '../stores/pendingTxStore';
 
 // Shared wallet executor type
 interface WalletExecutor {
@@ -24,7 +25,7 @@ interface WalletExecutor {
   signMessage?: (message: Uint8Array) => Promise<{ signature: Uint8Array } | string>;
   requestRecords?: (programId: string, includePlaintext?: boolean) => Promise<unknown[]>;
   decrypt?: (cipherText: string, tpk?: string, programId?: string, functionName?: string, index?: number) => Promise<string>;
-  transactionStatus?: (txId: string) => Promise<string | { status: string }>;
+  transactionStatus?: (txId: string) => Promise<string | { status: string; transactionId?: string; id?: string }>;
 }
 
 // Extract record input from artifact for wallet transactions.
@@ -261,6 +262,113 @@ export function useOnyxWallet() {
   const walletAddress = wallet.connected
     ? (wallet as unknown as { address: string }).address
     : null;
+
+  // ================================================================
+  // Background TX Confirmation Poller
+  // ================================================================
+  // Uses wallet.transactionStatus() for instant detection (the wallet
+  // knows when a TX is ACCEPTED far before the explorer API indexes it).
+  // Falls back to explorer API for at1xxx IDs.
+  const { transactions: pendingTxList, confirmTx: storeConfirmTx, failTx: storeFailTx, removeTx: storeRemoveTx, updateTxMeta } = usePendingTxStore();
+  const confirmedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const pending = pendingTxList.filter(
+      (t) => t.status === 'pending' && Date.now() - new Date(t.createdAt).getTime() < 20 * 60 * 1000
+    );
+    if (pending.length === 0) return;
+
+    let cancelled = false;
+
+    const checkViaWallet = async (txId: string): Promise<{ confirmed: boolean; realTxId?: string }> => {
+      if (confirmedRef.current.has(txId)) return { confirmed: true };
+      const walletAny = wallet as unknown as WalletExecutor;
+      if (!walletAny.transactionStatus) return { confirmed: false };
+      try {
+        const statusRes = await walletAny.transactionStatus(txId);
+        let s: string | undefined;
+        let realTxId: string | undefined;
+
+        if (typeof statusRes === 'string') {
+          s = statusRes.toLowerCase();
+        } else if (statusRes) {
+          s = statusRes.status?.toLowerCase();
+          // Shield wallet may include the real on-chain txId
+          realTxId = statusRes.transactionId || statusRes.id;
+        }
+
+        if (s === 'completed' || s === 'finalized' || s === 'accepted') {
+          return { confirmed: true, realTxId };
+        }
+        if (s === 'rejected' || s === 'failed') {
+          storeFailTx(txId);
+          setTimeout(() => storeRemoveTx(txId), 30000);
+          return { confirmed: true };
+        }
+      } catch { /* ignore */ }
+      return { confirmed: false };
+    };
+
+    const checkViaExplorer = async (txId: string): Promise<boolean> => {
+      if (confirmedRef.current.has(txId)) return true;
+      if (!txId.startsWith('at1')) return false;
+      const base = ALEO_CONFIG.provableApiBase;
+      try {
+        const [r1, r2] = await Promise.all([
+          fetch(`${base}/transaction/${txId}`, { signal: AbortSignal.timeout(5000) }).then(r => r.ok).catch(() => false),
+          fetch(`${base}/find/blockHash/${txId}`, { signal: AbortSignal.timeout(5000) }).then(r => r.ok).catch(() => false),
+        ]);
+        return r1 || r2;
+      } catch { return false; }
+    };
+
+    const confirmTxId = (txId: string, realTxId?: string) => {
+      if (confirmedRef.current.has(txId)) return;
+      confirmedRef.current.add(txId);
+      // Store the real on-chain txId if different from shield ID
+      if (realTxId && realTxId !== txId && realTxId.startsWith('at1')) {
+        console.log(`[OnyxWallet] Real on-chain txId: ${realTxId} (was: ${txId})`);
+        updateTxMeta(txId, { onChainTxId: realTxId });
+      }
+      storeConfirmTx(txId);
+      setTimeout(() => {
+        storeRemoveTx(txId);
+        confirmedRef.current.delete(txId);
+      }, 30000);
+    };
+
+    const poll = async () => {
+      if (cancelled) return;
+      for (const tx of pending) {
+        if (cancelled) break;
+        if (confirmedRef.current.has(tx.id)) continue;
+
+        // 1. Try wallet first (instant for Shield wallet)
+        const walletResult = await checkViaWallet(tx.id);
+        if (walletResult.confirmed && !confirmedRef.current.has(tx.id)) {
+          confirmTxId(tx.id, walletResult.realTxId);
+          continue;
+        }
+
+        // 2. Fallback to explorer API
+        const explorerOk = await checkViaExplorer(tx.id);
+        if (explorerOk) {
+          confirmTxId(tx.id);
+        }
+      }
+    };
+
+    // Immediate check
+    poll();
+
+    // Then poll every 3 seconds
+    const interval = setInterval(poll, 3000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [pendingTxList, wallet, storeConfirmTx, storeFailTx, storeRemoveTx, updateTxMeta]);
 
   const getExecutor = useCallback((): WalletExecutor | null => {
     if (!wallet.connected) return null;

@@ -14,6 +14,7 @@ import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
 import { api } from '../lib/api';
 import { formatAddress } from '../lib/aleo';
+import { TransactionIdDisplay } from '../components/ui/PendingTx';
 import type { Artifact } from '../lib/types';
 
 export const Stolen: FC = () => {
@@ -196,12 +197,7 @@ export const Stolen: FC = () => {
                   {formatAddress(reportComplete.tagHash, 10)}
                 </p>
               </div>
-              <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-                <p className="mb-1 text-xs text-white/40">Transaction</p>
-                <p className="break-all font-mono text-sm text-white">
-                  {formatAddress(reportComplete.txId, 12)}
-                </p>
-              </div>
+              <TransactionIdDisplay txId={reportComplete.txId} />
             </div>
 
             <Button onClick={resetReport} variant="secondary" className="w-full">

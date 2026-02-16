@@ -11,8 +11,10 @@ import {
   CheckCircleIcon,
 } from '../components/icons/Icons';
 import { Button, Card, Input, Modal } from '../components/ui/Components';
+import { PendingTxBanner, TransactionIdDisplay } from '../components/ui/PendingTx';
 import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
+import { usePendingTxStore } from '../stores/pendingTxStore';
 import { formatAddress } from '../lib/aleo';
 import { api } from '../lib/api';
 
@@ -21,6 +23,7 @@ export const Mint: FC = () => {
   const { setVisible: openWalletModal } = useWalletModal();
   const { authenticate, executeMint, executeRegisterBrand, executeAuthorizeBrand, loading } = useOnyxWallet();
   const { user, isAuthenticated, isBrand, setUser } = useUserStore();
+  const { addPendingTx } = usePendingTxStore();
 
   const [modelId, setModelId] = useState('');
   const [tagHash, setTagHash] = useState('');
@@ -95,6 +98,13 @@ export const Mint: FC = () => {
     );
 
     if (result) {
+      // Track as pending for UX feedback
+      addPendingTx({
+        id: result,
+        type: 'mint',
+        meta: { tagHash: cleanTagHash, modelId: modelIdNum },
+      });
+
       // Also register artifact in backend for verification lookups
       try {
         await api.mintArtifact({
@@ -287,6 +297,9 @@ export const Mint: FC = () => {
         </p>
       </motion.div>
 
+      {/* Pending transaction banners */}
+      <PendingTxBanner types={['mint', 'register_brand']} />
+
       {mintedResult ? (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
@@ -307,12 +320,7 @@ export const Mint: FC = () => {
                   {mintedResult.tagHash}
                 </p>
               </div>
-              <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-                <p className="mb-1 text-xs text-white/40">Transaction ID</p>
-                <p className="break-all font-mono text-sm text-white">
-                  {formatAddress(mintedResult.txId, 12)}
-                </p>
-              </div>
+              <TransactionIdDisplay txId={mintedResult.txId} label="Transaction ID" />
             </div>
 
             <div className="flex gap-3">

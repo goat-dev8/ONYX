@@ -1,4 +1,5 @@
 import { FC, useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import toast from 'react-hot-toast';
@@ -31,12 +32,14 @@ interface ScanResult {
 }
 
 export const Scan: FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [manualInput, setManualInput] = useState('');
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const scannerContainerRef = useRef<HTMLDivElement>(null);
+  const autoScanTriggered = useRef(false);
   const { fetchRecords } = useOnyxWallet();
 
   useEffect(() => {
@@ -44,6 +47,17 @@ export const Scan: FC = () => {
       stopScanner();
     };
   }, []);
+
+  // Auto-scan when tagHash is in URL query params (e.g. /scan?tagHash=123456)
+  useEffect(() => {
+    const tagHash = searchParams.get('tagHash');
+    if (tagHash && !autoScanTriggered.current && !loading && !result) {
+      autoScanTriggered.current = true;
+      // Clear the query param so a page refresh won't re-trigger
+      setSearchParams({}, { replace: true });
+      handleScanResult(tagHash);
+    }
+  }, [searchParams]);
 
   const startScanner = () => {
     setScanning(true);

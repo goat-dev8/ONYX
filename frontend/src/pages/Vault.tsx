@@ -12,8 +12,10 @@ import {
   LoadingSpinner,
 } from '../components/icons/Icons';
 import { Button, Card, Modal, Input, StatusBadge } from '../components/ui/Components';
+import { PendingTxBanner, PendingTxCard } from '../components/ui/PendingTx';
 import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
+import { usePendingTxStore } from '../stores/pendingTxStore';
 import { api } from '../lib/api';
 import { formatAddress, checkStolenStatus, saveLocalStolenTag } from '../lib/aleo';
 import type { Artifact } from '../lib/types';
@@ -23,6 +25,7 @@ export const Vault: FC = () => {
   const { setVisible: openWalletModal } = useWalletModal();
   const { authenticate, executeTransfer, executeReportStolen, executeProveForResale, fetchRecords, loading } = useOnyxWallet();
   const { isAuthenticated, artifacts, setArtifacts } = useUserStore();
+  const { addPendingTx, hasPendingOfType, getPendingByType } = usePendingTxStore();
   
   const [localLoading, setLocalLoading] = useState(false);
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
@@ -213,8 +216,13 @@ export const Vault: FC = () => {
 
     const txId = await executeTransfer(selectedArtifact, transferAddress);
     if (txId) {
+      addPendingTx({
+        id: txId,
+        type: 'transfer',
+        meta: { tagHash: selectedArtifact.tagHash, newOwner: transferAddress },
+      });
       // On-chain transfer succeeded! Show success immediately
-      toast.success('Transfer successful! Item transferred on-chain.');
+      toast.success('Transfer submitted! Waiting for confirmation...');
       setTransferModal(false);
       setTransferAddress('');
       
@@ -240,8 +248,13 @@ export const Vault: FC = () => {
 
     const txId = await executeReportStolen(selectedArtifact);
     if (txId) {
+      addPendingTx({
+        id: txId,
+        type: 'report_stolen',
+        meta: { tagHash: selectedArtifact.tagHash, modelId: selectedArtifact.modelId },
+      });
       // On-chain report succeeded!
-      toast.success('Item reported as stolen on-chain!');
+      toast.success('Stolen report submitted! Waiting for confirmation...');
       setStolenModal(false);
       
       // CRITICAL: Save to localStorage FIRST for persistence
@@ -282,6 +295,11 @@ export const Vault: FC = () => {
     const salt = proofSalt || Math.floor(Math.random() * 1000000000).toString();
     const result = await executeProveForResale(selectedArtifact, salt);
     if (result) {
+      addPendingTx({
+        id: result.txId,
+        type: 'prove_for_resale',
+        meta: { tagHash: selectedArtifact.tagHash },
+      });
       setGeneratedProof(result.token);
       toast.success('Proof generated successfully!');
       
@@ -359,11 +377,17 @@ export const Vault: FC = () => {
         </p>
       </motion.div>
 
+      {/* Pending transaction banners */}
+      <PendingTxBanner
+        types={['mint', 'transfer', 'report_stolen', 'prove_for_resale']}
+        onConfirmed={() => loadArtifacts()}
+      />
+
       {localLoading ? (
         <div className="flex items-center justify-center py-20">
           <LoadingSpinner size={48} className="text-champagne-400" />
         </div>
-      ) : artifacts.length === 0 ? (
+      ) : artifacts.length === 0 && !hasPendingOfType('mint') ? (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -382,6 +406,11 @@ export const Vault: FC = () => {
           className="grid gap-6 md:grid-cols-2 lg:grid-cols-3"
         >
           <AnimatePresence>
+            {/* Pending mint/transfer cards at the top */}
+            {getPendingByType('mint').map((ptx) => (
+              <PendingTxCard key={ptx.id} tx={ptx} />
+            ))}
+
             {artifacts.map((artifact, index) => (
               <motion.div
                 key={artifact.tagHash || artifact.id || `artifact_${index}`}
