@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { Database, Brand, Artifact, ResaleProof, EventLog, Listing } from '../types';
+import { Database, Brand, Artifact, ResaleProof, EventLog, Listing, Sale } from '../types';
 
 const DB_PATH = process.env.DB_PATH || './data/db.json';
 
@@ -9,6 +9,7 @@ const DEFAULT_DB: Database = {
   brands: {},
   artifacts: {},
   listings: {},
+  sales: {},
   proofs: [],
   nonces: {},
   events: [],
@@ -246,10 +247,11 @@ export class DatabaseService {
   }): { listings: Listing[]; total: number; page: number; totalPages: number } {
     let results = Object.values(this.data.listings);
 
-    // Default to active only
-    const statusFilter = filters?.status || 'active';
+    // Default to active + reserved (reserved = has active sale, still buyable)
+    const statusFilter = filters?.status || 'active,reserved';
     if (statusFilter !== 'all') {
-      results = results.filter(l => l.status === statusFilter);
+      const validStatuses = statusFilter.split(',').map(s => s.trim());
+      results = results.filter(l => validStatuses.includes(l.status));
     }
 
     // Filter by brand name (case-insensitive partial match)
@@ -307,5 +309,42 @@ export class DatabaseService {
     results = results.slice(offset, offset + limit);
 
     return { listings: results, total, page, totalPages };
+  }
+
+  // ========== Sales (v5 Atomic Purchase) ==========
+
+  getSale(id: string): Sale | null {
+    return this.data.sales[id] || null;
+  }
+
+  getSaleBySaleId(saleId: string): Sale | null {
+    return Object.values(this.data.sales).find(s => s.saleId === saleId) || null;
+  }
+
+  getSaleByListingId(listingId: string): Sale | null {
+    return Object.values(this.data.sales).find(
+      s => s.listingId === listingId && !['completed', 'cancelled', 'refunded'].includes(s.status)
+    ) || null;
+  }
+
+  setSale(sale: Sale): void {
+    this.data.sales[sale.id] = sale;
+    this.save();
+  }
+
+  getSalesBySeller(sellerHash: string): Sale[] {
+    return Object.values(this.data.sales).filter(s => s.sellerHash === sellerHash);
+  }
+
+  getPendingCompletions(sellerHash: string): Sale[] {
+    return Object.values(this.data.sales).filter(
+      s => s.sellerHash === sellerHash && s.status === 'paid'
+    );
+  }
+
+  getActiveSales(): Sale[] {
+    return Object.values(this.data.sales).filter(
+      s => ['pending_payment', 'paid', 'completing'].includes(s.status)
+    );
   }
 }

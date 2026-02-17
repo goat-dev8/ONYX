@@ -65,8 +65,18 @@ export async function getMappingValue(
       return null;
     }
 
-    const data = await response.json() as Record<string, unknown>;
-    return (data.value || data) as string;
+    const data = await response.json();
+    if (data === null || data === undefined) {
+      return null;
+    }
+    // API may return plain string, or { value: "..." }
+    if (typeof data === 'string') {
+      return data;
+    }
+    if (typeof data === 'object' && data !== null && 'value' in data) {
+      return String((data as Record<string, unknown>).value);
+    }
+    return String(data);
   } catch (err) {
     console.error('[ProvableAPI] Error fetching mapping:', err);
     return null;

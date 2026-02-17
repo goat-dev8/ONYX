@@ -6,7 +6,7 @@ import { isBrandAuthorized } from '../services/provableApi';
 
 const router = Router();
 const db = DatabaseService.getInstance();
-const PROGRAM_ID = process.env.ALEO_PROGRAM_ID || 'onyxpriv_v4.aleo';
+const PROGRAM_ID = process.env.ALEO_PROGRAM_ID || 'onyxpriv_v5.aleo';
 
 router.post('/register', authMiddleware, (req: AuthRequest, res: Response): void => {
   try {

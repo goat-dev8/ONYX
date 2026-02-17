@@ -8,7 +8,7 @@ import { Listing } from '../types';
 
 const router = Router();
 const db = DatabaseService.getInstance();
-const PROGRAM_ID = process.env.PROGRAM_ID || 'onyxpriv_v4.aleo';
+const PROGRAM_ID = process.env.PROGRAM_ID || 'onyxpriv_v5.aleo';
 
 // ============================================================
 // GET /listings — Browse marketplace (public, no auth)

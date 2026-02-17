@@ -10,6 +10,7 @@ import brandsRoutes from './routes/brands';
 import artifactsRoutes from './routes/artifacts';
 import verifyRoutes from './routes/verify';
 import listingsRoutes from './routes/listings';
+import salesRoutes from './routes/sales';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -38,6 +39,7 @@ app.use('/brands', brandsRoutes);
 app.use('/artifacts', artifactsRoutes);
 app.use('/verify', verifyRoutes);
 app.use('/listings', listingsRoutes);
+app.use('/sales', salesRoutes);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

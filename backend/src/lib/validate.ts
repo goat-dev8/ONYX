@@ -65,7 +65,7 @@ export const createListingSchema = z.object({
   tagHash: z.string().min(1),
   modelId: z.number().int().positive(),
   title: z.string().min(3).max(200),
-  description: z.string().min(10).max(2000),
+  description: z.string().min(1).max(2000),
   condition: z.enum(['new', 'like_new', 'good', 'fair']),
   imageUrl: z.string().url().optional(),
   price: z.number().int().positive(),
@@ -79,4 +79,34 @@ export const updateListingSchema = z.object({
   condition: z.enum(['new', 'like_new', 'good', 'fair']).optional(),
   imageUrl: z.string().url().optional().nullable(),
   status: z.enum(['active', 'delisted']).optional(),
+});
+
+// ========== Atomic Sales (v5) ==========
+
+export const createSaleSchema = z.object({
+  listingId: z.string().uuid(),
+  saleId: z.string().min(1),      // Backend tracking ID
+  onChainSaleId: z.string().min(1),    // On-chain sale_id field from SaleRecord
+  createSaleTxId: z.string().min(1),
+});
+
+export const purchaseSaleSchema = z.object({
+  saleId: z.string().min(1),      // On-chain sale_id
+  buySaleTxId: z.string().min(1),
+});
+
+export const completeSaleSchema = z.object({
+  saleId: z.string().min(1),
+  completeSaleTxId: z.string().min(1),
+  buyerAddress: addressSchema.optional(),
+});
+
+export const cancelSaleSchema = z.object({
+  saleId: z.string().min(1),
+  cancelTxId: z.string().min(1),
+});
+
+export const refundSaleSchema = z.object({
+  saleId: z.string().min(1),
+  refundTxId: z.string().min(1),
 });
