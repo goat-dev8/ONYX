@@ -27,7 +27,7 @@ const conditionColors: Record<string, string> = {
 };
 
 export const ListingDetailModal: FC<ListingDetailModalProps> = ({
-  listing, onClose, onBuyWithEscrow, onDelisted,
+  listing, onClose, onBuyWithEscrow, onDelisted: _onDelisted,
 }) => {
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<{
