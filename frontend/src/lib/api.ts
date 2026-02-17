@@ -1,4 +1,4 @@
-import type { Listing, ListingsResponse, ListingCreate, ListingFilters, ListingVerifyResult } from './types';
+import type { Listing, ListingsResponse, ListingCreate, ListingFilters, ListingVerifyResult, Sale, SaleStatusResponse } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
@@ -205,7 +205,7 @@ export const api = {
       headers: authHeaders(),
       body: JSON.stringify(data),
     });
-    return handleResponse<{ success: boolean; listing: Listing }>(response);
+    return handleResponse<Listing>(response);
   },
 
   async updateListing(id: string, data: Record<string, unknown>) {
@@ -214,7 +214,7 @@ export const api = {
       headers: authHeaders(),
       body: JSON.stringify(data),
     });
-    return handleResponse<{ success: boolean; listing: Listing }>(response);
+    return handleResponse<Listing>(response);
   },
 
   async deleteListing(id: string) {
@@ -244,5 +244,86 @@ export const api = {
       body: JSON.stringify(data),
     });
     return handleResponse<{ success: boolean; listingId: string; status: string; message: string }>(response);
+  },
+
+  // ========== Atomic Sales (v5) ==========
+
+  async createSale(data: { listingId: string; saleId: string; onChainSaleId: string; createSaleTxId: string }) {
+    const response = await fetch(`${API_BASE_URL}/sales/create`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ success: boolean; sale: Sale }>(response);
+  },
+
+  async purchaseSale(data: { saleId: string; buySaleTxId: string }) {
+    const response = await fetch(`${API_BASE_URL}/sales/purchase`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ success: boolean; sale: Sale }>(response);
+  },
+
+  async completeSaleAtomic(data: { saleId: string; completeSaleTxId: string; buyerAddress?: string }) {
+    const response = await fetch(`${API_BASE_URL}/sales/complete`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ success: boolean; sale: Sale }>(response);
+  },
+
+  async cancelSale(data: { saleId: string; cancelTxId: string }) {
+    const response = await fetch(`${API_BASE_URL}/sales/cancel`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ success: boolean; sale: Sale }>(response);
+  },
+
+  async updateSaleOnChainId(data: { listingId: string; onChainSaleId: string }) {
+    const response = await fetch(`${API_BASE_URL}/sales/update-onchain-id`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ success: boolean; updated: boolean }>(response);
+  },
+
+  async refundSale(data: { saleId: string; refundTxId: string }) {
+    const response = await fetch(`${API_BASE_URL}/sales/refund`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ success: boolean; sale: Sale }>(response);
+  },
+
+  async getSaleStatus(saleId: string, saleCommitment?: string) {
+    const params = saleCommitment ? `?saleCommitment=${encodeURIComponent(saleCommitment)}` : '';
+    const response = await fetch(`${API_BASE_URL}/sales/${encodeURIComponent(saleId)}/status${params}`);
+    return handleResponse<SaleStatusResponse>(response);
+  },
+
+  async getPendingCompletions() {
+    const response = await fetch(`${API_BASE_URL}/sales/pending-completions`, {
+      headers: authHeaders(),
+    });
+    return handleResponse<{ sales: Sale[]; count: number }>(response);
+  },
+
+  async getMySales() {
+    const response = await fetch(`${API_BASE_URL}/sales/my/all`, {
+      headers: authHeaders(),
+    });
+    return handleResponse<{ sales: Sale[]; count: number }>(response);
+  },
+
+  async getSaleByListing(listingId: string) {
+    const response = await fetch(`${API_BASE_URL}/sales/by-listing/${encodeURIComponent(listingId)}`);
+    return handleResponse<{ found: boolean; sale: { saleId: string; onChainSaleId: string; listingId: string; sellerAddress: string; price: number; currency: 'aleo' | 'usdcx'; status: string; createdAt: string } | null }>(response);
   },
 };

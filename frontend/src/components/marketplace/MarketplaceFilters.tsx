@@ -201,7 +201,7 @@ export const MarketplaceFilters: FC<MarketplaceFiltersProps> = ({ filters, onCha
                     type="number"
                     placeholder="Min"
                     value={filters.minPrice !== undefined
-                      ? (filters.currency === 'usdcx' ? filters.minPrice : filters.minPrice / 1_000_000)
+                      ? filters.minPrice / 1_000_000
                       : ''}
                     onChange={(e) => {
                       const raw = parseFloat(e.target.value);
@@ -209,7 +209,7 @@ export const MarketplaceFilters: FC<MarketplaceFiltersProps> = ({ filters, onCha
                         update({ minPrice: undefined });
                       } else {
                         update({
-                          minPrice: filters.currency === 'usdcx' ? raw : Math.round(raw * 1_000_000),
+                          minPrice: Math.round(raw * 1_000_000),
                         });
                       }
                     }}
@@ -222,7 +222,7 @@ export const MarketplaceFilters: FC<MarketplaceFiltersProps> = ({ filters, onCha
                     type="number"
                     placeholder="Max"
                     value={filters.maxPrice !== undefined
-                      ? (filters.currency === 'usdcx' ? filters.maxPrice : filters.maxPrice / 1_000_000)
+                      ? filters.maxPrice / 1_000_000
                       : ''}
                     onChange={(e) => {
                       const raw = parseFloat(e.target.value);
@@ -230,7 +230,7 @@ export const MarketplaceFilters: FC<MarketplaceFiltersProps> = ({ filters, onCha
                         update({ maxPrice: undefined });
                       } else {
                         update({
-                          maxPrice: filters.currency === 'usdcx' ? raw : Math.round(raw * 1_000_000),
+                          maxPrice: Math.round(raw * 1_000_000),
                         });
                       }
                     }}

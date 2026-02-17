@@ -9,6 +9,7 @@ interface ListingDetailModalProps {
   listing: Listing;
   onClose: () => void;
   onBuyWithEscrow: (listing: Listing) => void;
+  onDelisted?: () => void;
 }
 
 const conditionLabels: Record<string, string> = {
@@ -26,7 +27,7 @@ const conditionColors: Record<string, string> = {
 };
 
 export const ListingDetailModal: FC<ListingDetailModalProps> = ({
-  listing, onClose, onBuyWithEscrow,
+  listing, onClose, onBuyWithEscrow, onDelisted,
 }) => {
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<{
@@ -39,7 +40,7 @@ export const ListingDetailModal: FC<ListingDetailModalProps> = ({
   const priceDisplay =
     listing.currency === 'aleo'
       ? `${(listing.price / 1_000_000).toFixed(listing.price % 1_000_000 === 0 ? 0 : 2)} ALEO`
-      : `${listing.price} USDCx`;
+      : `${(listing.price / 1_000_000).toFixed(listing.price % 1_000_000 === 0 ? 0 : 2)} USDCx`;
 
   const handleVerify = async () => {
     setVerifying(true);
@@ -243,11 +244,6 @@ export const ListingDetailModal: FC<ListingDetailModalProps> = ({
                 <div className="w-full rounded-xl border border-white/10 bg-white/5 p-4
                               text-center text-sm text-white/40">
                   This item has been sold.
-                </div>
-              ) : listing.status === 'reserved' ? (
-                <div className="w-full rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4
-                              text-center text-sm text-yellow-400">
-                  This item is currently reserved.
                 </div>
               ) : (
                 <>

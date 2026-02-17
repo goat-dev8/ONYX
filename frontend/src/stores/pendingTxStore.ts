@@ -17,7 +17,14 @@ export type PendingTxType =
   | 'release_escrow'
   | 'refund_escrow'
   | 'pay_usdcx'
-  | 'register_brand';
+  | 'register_brand'
+  | 'create_sale'
+  | 'buy_sale_escrow'
+  | 'buy_sale_usdcx'
+  | 'complete_sale_escrow'
+  | 'complete_sale_usdcx'
+  | 'cancel_sale'
+  | 'refund_sale';
 
 export interface PendingTx {
   id: string;           // txId from wallet

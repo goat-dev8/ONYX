@@ -29,6 +29,8 @@ export const Mint: FC = () => {
   const [tagHash, setTagHash] = useState('');
   const [brandName, setBrandName] = useState('');
   const [registering, setRegistering] = useState(false);
+  const [needsOnChainReRegister, setNeedsOnChainReRegister] = useState(false);
+  const [reRegistering, setReRegistering] = useState(false);
   const [mintedResult, setMintedResult] = useState<{
     tagHash: string;
     txId: string;
@@ -47,9 +49,12 @@ export const Mint: FC = () => {
       } else if (!isBrand) {
         // Already authenticated but not marked as brand — check backend
         checkExistingBrand();
+      } else if (isBrand && walletAddress) {
+        // Brand exists in backend — verify on-chain registration on v5
+        checkOnChainBrandStatus();
       }
     }
-  }, [wallet.connected, isAuthenticated]);
+  }, [wallet.connected, isAuthenticated, isBrand]);
 
   const checkExistingBrand = async () => {
     try {
@@ -64,6 +69,38 @@ export const Mint: FC = () => {
       }
     } catch {
       // Not a brand yet — that's fine
+    }
+  };
+
+  const checkOnChainBrandStatus = async () => {
+    if (!walletAddress) return;
+    try {
+      const result = await api.checkBrandChainStatus(walletAddress);
+      if (!result.authorized) {
+        setNeedsOnChainReRegister(true);
+      } else {
+        setNeedsOnChainReRegister(false);
+      }
+    } catch {
+      // If check fails, assume re-registration may be needed
+      setNeedsOnChainReRegister(true);
+    }
+  };
+
+  const handleReRegisterOnChain = async () => {
+    setReRegistering(true);
+    try {
+      toast.loading('Re-registering brand on v5 contract...', { id: 'brand-reregister' });
+      await executeRegisterBrand();
+      toast.dismiss('brand-reregister');
+      toast.success('Brand re-registered on v5! You can now mint.');
+      setNeedsOnChainReRegister(false);
+    } catch (err) {
+      toast.dismiss('brand-reregister');
+      console.error('[Mint] Re-registration failed:', err);
+      toast.error(err instanceof Error ? err.message : 'Re-registration failed');
+    } finally {
+      setReRegistering(false);
     }
   };
 
@@ -299,6 +336,31 @@ export const Mint: FC = () => {
 
       {/* Pending transaction banners */}
       <PendingTxBanner types={['mint', 'register_brand']} />
+
+      {/* On-chain re-registration needed (brand was on v4, now on v5) */}
+      {needsOnChainReRegister && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-5"
+        >
+          <h3 className="font-heading text-sm font-semibold text-amber-300">
+            On-Chain Re-Registration Required
+          </h3>
+          <p className="mt-1 text-xs text-white/50">
+            Your brand is registered in the backend but not yet on the new v5 contract.
+            Please re-register to enable minting.
+          </p>
+          <Button
+            onClick={handleReRegisterOnChain}
+            loading={reRegistering}
+            size="sm"
+            className="mt-3"
+          >
+            Re-Register Brand on v5
+          </Button>
+        </motion.div>
+      )}
 
       {mintedResult ? (
         <motion.div

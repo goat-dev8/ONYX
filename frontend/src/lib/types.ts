@@ -103,3 +103,37 @@ export interface ListingVerifyResult {
   verifiedAt: string;
   source: string;
 }
+
+// ========== Atomic Sales (v5) ==========
+
+export type SaleStatus = 'pending_payment' | 'paid' | 'completing' | 'completed' | 'cancelled' | 'refunded';
+
+export interface Sale {
+  id: string;
+  saleId: string;
+  onChainSaleId?: string;
+  listingId: string;
+  title?: string;
+  tagHash: string;
+  price: number;
+  currency: 'aleo' | 'usdcx';
+  status: SaleStatus;
+  hasBuyer?: boolean;
+  buyerAddress?: string;
+  paidAt?: string;
+  completedAt?: string;
+  createdAt: string;
+}
+
+export interface SaleStatusResponse {
+  saleId: string;
+  onChainSaleId?: string;
+  status: SaleStatus;
+  price: number;
+  currency: 'aleo' | 'usdcx';
+  hasBuyer: boolean;
+  createdAt: string;
+  paidAt?: string;
+  completedAt?: string;
+  onChain: { active: boolean; paid: boolean };
+}

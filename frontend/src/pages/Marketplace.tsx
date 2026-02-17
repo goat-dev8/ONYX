@@ -89,15 +89,15 @@ export const Marketplace: FC = () => {
 
   const handleBuyWithEscrow = (listing: Listing) => {
     setSelectedListing(null);
-    // Navigate to escrow page with pre-filled data
+    // Navigate to atomic purchase page — seller address comes from sale lookup, not listing
     const params = new URLSearchParams({
+      listingId: listing.id,
       tagHash: listing.tagHash,
       amount: String(listing.price),
       currency: listing.currency,
       title: listing.title,
-      seller: listing.brandAddress,
     });
-    navigate(`/escrow?${params.toString()}`);
+    navigate(`/purchase?${params.toString()}`);
   };
 
   const handlePageChange = (page: number) => {
@@ -292,6 +292,7 @@ export const Marketplace: FC = () => {
             listing={selectedListing}
             onClose={handleCloseDetail}
             onBuyWithEscrow={handleBuyWithEscrow}
+            onDelisted={() => { setSelectedListing(null); fetchListings(); }}
           />
         )}
       </AnimatePresence>

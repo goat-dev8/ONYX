@@ -177,12 +177,13 @@ async function findCreditsRecord(
 
     // First pass: find a record with enough balance
     let fallbackRecord: string | null = null;
+    let anyRecordHadKnownBalance = false;
     for (const r of rawRecords) {
       const rec = r as Record<string, unknown>;
       // Skip spent records
       if (rec.spent === true) continue;
 
-      const mc = parseMicrocredits(r);
+      let mc = parseMicrocredits(r);
       let input = extractCreditsRecordInput(r);
 
       // If plaintext extraction failed, try decrypting the ciphertext via wallet
@@ -192,6 +193,11 @@ async function findCreditsRecord(
           try {
             input = await executor.decrypt(ct);
             console.log('[OnyxWallet] Decrypted record plaintext:', input);
+            // Re-parse microcredits from decrypted plaintext
+            if (input) {
+              const decryptedMc = parseMicrocredits(input);
+              if (decryptedMc > 0) mc = decryptedMc;
+            }
           } catch (e) {
             console.warn('[OnyxWallet] Decrypt failed for record:', e);
           }
@@ -200,7 +206,10 @@ async function findCreditsRecord(
 
       if (!input) continue;
 
-      // Save first non-spent record as fallback (in case amount parsing fails)
+      // Track whether we know the balance for any record
+      if (mc > 0) anyRecordHadKnownBalance = true;
+
+      // Save first non-spent record as fallback (only used if no balance could be parsed)
       if (!fallbackRecord) fallbackRecord = input;
 
       if (mc >= minAmount) {
@@ -209,11 +218,17 @@ async function findCreditsRecord(
       }
     }
 
-    // If we found records but none had enough parsed balance,
-    // return the fallback — the wallet will validate the actual balance
-    if (fallbackRecord) {
-      console.warn('[OnyxWallet] No record with parsed balance >=', minAmount, '— using fallback record');
+    // Only use fallback if we couldn't parse ANY balance (unknown wallet format).
+    // If we DID parse balances and none were sufficient, the user genuinely
+    // doesn't have enough credits — return null to show a clear error.
+    if (fallbackRecord && !anyRecordHadKnownBalance) {
+      console.warn('[OnyxWallet] No record balance could be parsed — using fallback record');
       return fallbackRecord;
+    }
+
+    if (anyRecordHadKnownBalance) {
+      console.warn('[OnyxWallet] All records have insufficient balance for', minAmount, 'microcredits');
+      return null;
     }
 
     console.warn('[OnyxWallet] All records are spent or unparseable');
@@ -1203,6 +1218,432 @@ export function useOnyxWallet() {
 
   // ========== Record Fetching ==========
 
+  // ========== Atomic Sale System (v5) ==========
+
+  const executeCreateSale = useCallback(
+    async (
+      artifact: { _plaintext?: string; _raw?: Record<string, unknown>; tagHash: string },
+      price: number,
+      currency: 0 | 1,
+      saleSalt: string
+    ): Promise<{ txId: string; saleId: string } | null> => {
+      const executor = getExecutor();
+      if (!executor) {
+        toast.error('Wallet not connected');
+        return null;
+      }
+
+      const recordInput = getRecordInput(artifact);
+      if (!recordInput) {
+        toast.error('Artifact record not available. Please reconnect wallet.');
+        return null;
+      }
+
+      try {
+        toast.loading('Creating sale — locking artifact...', { id: 'tx-create-sale' });
+
+        const response = await executor.executeTransaction({
+          program: ALEO_CONFIG.programId,
+          function: 'create_sale',
+          inputs: [
+            recordInput,
+            `${price}u64`,
+            `${currency}u8`,
+            `${saleSalt}field`,
+          ],
+          fee: DEFAULT_FEE,
+          privateFee: false,
+        });
+
+        toast.dismiss('tx-create-sale');
+
+        if (response?.transactionId) {
+          toast.success('Sale created! Artifact locked for sale.');
+          return {
+            txId: response.transactionId,
+            saleId: `sale_${response.transactionId.slice(0, 16)}`,
+          };
+        }
+
+        throw new Error('No transaction ID returned');
+      } catch (err) {
+        toast.dismiss('tx-create-sale');
+        console.error('[OnyxWallet] Create sale error:', err);
+        toast.error(err instanceof Error ? err.message : 'Sale creation failed');
+        return null;
+      }
+    },
+    [getExecutor]
+  );
+
+  const executeBuySaleEscrow = useCallback(
+    async (
+      tagHash: string,
+      amount: number,
+      sellerAddress: string,
+      saleId: string
+    ): Promise<string | null> => {
+      const executor = getExecutor();
+      if (!executor) {
+        toast.error('Wallet not connected');
+        return null;
+      }
+
+      try {
+        toast.loading('Finding credits for purchase...', { id: 'tx-buy-sale' });
+
+        const creditsRecordInput = await findCreditsRecord(executor, amount);
+        if (!creditsRecordInput) {
+          toast.dismiss('tx-buy-sale');
+          toast.error(`Insufficient private credits. Need ${(amount / 1_000_000).toFixed(2)} ALEO. Shield more credits first.`);
+          return null;
+        }
+
+        toast.loading('Buying item — depositing escrow...', { id: 'tx-buy-sale' });
+
+        const response = await executor.executeTransaction({
+          program: ALEO_CONFIG.programId,
+          function: 'buy_sale_escrow',
+          inputs: [
+            creditsRecordInput,
+            `${tagHash}field`,
+            `${amount}u64`,
+            sellerAddress,
+            `${saleId}field`,
+          ],
+          fee: DEFAULT_FEE,
+          privateFee: false,
+        });
+
+        toast.dismiss('tx-buy-sale');
+
+        if (response?.transactionId) {
+          toast.success('Purchase payment deposited!');
+          return response.transactionId;
+        }
+
+        throw new Error('No transaction ID returned');
+      } catch (err) {
+        toast.dismiss('tx-buy-sale');
+        console.error('[OnyxWallet] Buy sale escrow error:', err);
+        toast.error(err instanceof Error ? err.message : 'Purchase payment failed');
+        return null;
+      }
+    },
+    [getExecutor]
+  );
+
+  const executeBuySaleUsdcx = useCallback(
+    async (
+      sellerAddress: string,
+      amount: bigint,
+      tagHash: string,
+      saleId: string
+    ): Promise<string | null> => {
+      const executor = getExecutor();
+      if (!executor) {
+        toast.error('Wallet not connected');
+        return null;
+      }
+
+      try {
+        toast.loading('Finding USDCx token for purchase...', { id: 'tx-buy-sale-usdcx' });
+
+        if (!executor.requestRecords) {
+          toast.dismiss('tx-buy-sale-usdcx');
+          toast.error('Wallet does not support record requests');
+          return null;
+        }
+
+        const usdcxRecords = await executor.requestRecords(USDCX_PROGRAM_ID, true) as Record<string, unknown>[];
+        const tokenRecord = await findSuitableUsdcxRecord(usdcxRecords, amount, executor.decrypt);
+
+        if (!tokenRecord) {
+          toast.dismiss('tx-buy-sale-usdcx');
+          toast.error(`No USDCx record with sufficient balance (need ${amount} microUSDCx)`);
+          return null;
+        }
+
+        const tokenRec = tokenRecord as Record<string, unknown>;
+        const tokenInput = tokenRec.recordPlaintext || tokenRec.plaintext || (tokenRec as { id?: string }).id || tokenRec.recordCiphertext;
+
+        if (!tokenInput) {
+          toast.dismiss('tx-buy-sale-usdcx');
+          toast.error('Cannot extract USDCx token record');
+          return null;
+        }
+
+        toast.loading('Generating compliance proofs...', { id: 'tx-buy-sale-usdcx' });
+
+        const freezeCount = await getFreezeListCount();
+        const buyerProof = await generateFreezeListProof(walletAddress || '', freezeCount);
+        const sellerProof = await generateFreezeListProof(sellerAddress, freezeCount);
+
+        toast.loading('Processing USDCx purchase...', { id: 'tx-buy-sale-usdcx' });
+
+        const response = await executor.executeTransaction({
+          program: ALEO_CONFIG.programId,
+          function: 'buy_sale_usdcx',
+          inputs: [
+            tokenInput as string,
+            sellerAddress,
+            `${amount}u128`,
+            `${tagHash}field`,
+            `${saleId}field`,
+            `[${buyerProof}, ${sellerProof}]`,
+          ],
+          fee: DEFAULT_FEE,
+          privateFee: false,
+        });
+
+        toast.dismiss('tx-buy-sale-usdcx');
+
+        if (response?.transactionId) {
+          toast.success('USDCx purchase payment complete!');
+          return response.transactionId;
+        }
+
+        throw new Error('USDCx purchase failed');
+      } catch (err) {
+        toast.dismiss('tx-buy-sale-usdcx');
+        console.error('[OnyxWallet] Buy sale USDCx error:', err);
+        toast.error(err instanceof Error ? err.message : 'USDCx purchase failed');
+        return null;
+      }
+    },
+    [getExecutor, walletAddress]
+  );
+
+  const executeCompleteSaleEscrow = useCallback(
+    async (
+      saleRecord: { _plaintext?: string; _raw?: Record<string, unknown> },
+      buyerAddress: string
+    ): Promise<string | null> => {
+      const executor = getExecutor();
+      if (!executor) {
+        toast.error('Wallet not connected');
+        return null;
+      }
+
+      const recordInput = getRecordInput(saleRecord);
+      if (!recordInput) {
+        toast.error('Sale record not available.');
+        return null;
+      }
+
+      try {
+        toast.loading('Completing sale — delivering artifact + claiming credits...', { id: 'tx-complete-sale' });
+
+        const response = await executor.executeTransaction({
+          program: ALEO_CONFIG.programId,
+          function: 'complete_sale_escrow',
+          inputs: [recordInput, buyerAddress],
+          fee: DEFAULT_FEE,
+          privateFee: false,
+        });
+
+        toast.dismiss('tx-complete-sale');
+
+        if (response?.transactionId) {
+          toast.success('Sale completed! Artifact delivered & credits claimed.');
+          return response.transactionId;
+        }
+
+        throw new Error('No transaction ID returned');
+      } catch (err) {
+        toast.dismiss('tx-complete-sale');
+        console.error('[OnyxWallet] Complete sale escrow error:', err);
+        toast.error(err instanceof Error ? err.message : 'Sale completion failed');
+        return null;
+      }
+    },
+    [getExecutor]
+  );
+
+  const executeCompleteSaleUsdcx = useCallback(
+    async (
+      saleRecord: { _plaintext?: string; _raw?: Record<string, unknown> },
+      buyerAddress: string
+    ): Promise<string | null> => {
+      const executor = getExecutor();
+      if (!executor) {
+        toast.error('Wallet not connected');
+        return null;
+      }
+
+      const recordInput = getRecordInput(saleRecord);
+      if (!recordInput) {
+        toast.error('Sale record not available.');
+        return null;
+      }
+
+      try {
+        toast.loading('Completing USDCx sale — delivering artifact...', { id: 'tx-complete-sale-usdcx' });
+
+        const response = await executor.executeTransaction({
+          program: ALEO_CONFIG.programId,
+          function: 'complete_sale_usdcx',
+          inputs: [recordInput, buyerAddress],
+          fee: DEFAULT_FEE,
+          privateFee: false,
+        });
+
+        toast.dismiss('tx-complete-sale-usdcx');
+
+        if (response?.transactionId) {
+          toast.success('USDCx sale completed! Artifact delivered.');
+          return response.transactionId;
+        }
+
+        throw new Error('No transaction ID returned');
+      } catch (err) {
+        toast.dismiss('tx-complete-sale-usdcx');
+        console.error('[OnyxWallet] Complete sale USDCx error:', err);
+        toast.error(err instanceof Error ? err.message : 'USDCx sale completion failed');
+        return null;
+      }
+    },
+    [getExecutor]
+  );
+
+  const executeCancelSale = useCallback(
+    async (
+      saleRecord: { _plaintext?: string; _raw?: Record<string, unknown> }
+    ): Promise<string | null> => {
+      const executor = getExecutor();
+      if (!executor) {
+        toast.error('Wallet not connected');
+        return null;
+      }
+
+      const recordInput = getRecordInput(saleRecord);
+      if (!recordInput) {
+        toast.error('Sale record not available.');
+        return null;
+      }
+
+      try {
+        toast.loading('Cancelling sale — returning artifact...', { id: 'tx-cancel-sale' });
+
+        const response = await executor.executeTransaction({
+          program: ALEO_CONFIG.programId,
+          function: 'cancel_sale',
+          inputs: [recordInput],
+          fee: DEFAULT_FEE,
+          privateFee: false,
+        });
+
+        toast.dismiss('tx-cancel-sale');
+
+        if (response?.transactionId) {
+          toast.success('Sale cancelled! Artifact returned to you.');
+          return response.transactionId;
+        }
+
+        throw new Error('No transaction ID returned');
+      } catch (err) {
+        toast.dismiss('tx-cancel-sale');
+        console.error('[OnyxWallet] Cancel sale error:', err);
+        toast.error(err instanceof Error ? err.message : 'Sale cancellation failed');
+        return null;
+      }
+    },
+    [getExecutor]
+  );
+
+  const executeRefundSaleEscrow = useCallback(
+    async (
+      purchaseReceipt: { _plaintext?: string; _raw?: Record<string, unknown> }
+    ): Promise<string | null> => {
+      const executor = getExecutor();
+      if (!executor) {
+        toast.error('Wallet not connected');
+        return null;
+      }
+
+      const recordInput = getRecordInput(purchaseReceipt);
+      if (!recordInput) {
+        toast.error('Purchase receipt not available.');
+        return null;
+      }
+
+      try {
+        toast.loading('Refunding purchase — reclaiming credits...', { id: 'tx-refund-sale' });
+
+        const response = await executor.executeTransaction({
+          program: ALEO_CONFIG.programId,
+          function: 'refund_sale_escrow',
+          inputs: [recordInput],
+          fee: DEFAULT_FEE,
+          privateFee: false,
+        });
+
+        toast.dismiss('tx-refund-sale');
+
+        if (response?.transactionId) {
+          toast.success('Purchase refunded! Credits returned.');
+          return response.transactionId;
+        }
+
+        throw new Error('No transaction ID returned');
+      } catch (err) {
+        toast.dismiss('tx-refund-sale');
+        console.error('[OnyxWallet] Refund sale escrow error:', err);
+        toast.error(err instanceof Error ? err.message : 'Refund failed');
+        return null;
+      }
+    },
+    [getExecutor]
+  );
+
+  const executeRefundSaleUsdcx = useCallback(
+    async (
+      purchaseReceipt: { _plaintext?: string; _raw?: Record<string, unknown> }
+    ): Promise<string | null> => {
+      const executor = getExecutor();
+      if (!executor) {
+        toast.error('Wallet not connected');
+        return null;
+      }
+
+      const recordInput = getRecordInput(purchaseReceipt);
+      if (!recordInput) {
+        toast.error('Purchase receipt not available.');
+        return null;
+      }
+
+      try {
+        toast.loading('Refunding USDCx purchase...', { id: 'tx-refund-sale-usdcx' });
+
+        const response = await executor.executeTransaction({
+          program: ALEO_CONFIG.programId,
+          function: 'refund_sale_usdcx',
+          inputs: [recordInput],
+          fee: DEFAULT_FEE,
+          privateFee: false,
+        });
+
+        toast.dismiss('tx-refund-sale-usdcx');
+
+        if (response?.transactionId) {
+          toast.success('USDCx purchase refund processed!');
+          return response.transactionId;
+        }
+
+        throw new Error('No transaction ID returned');
+      } catch (err) {
+        toast.dismiss('tx-refund-sale-usdcx');
+        console.error('[OnyxWallet] Refund sale USDCx error:', err);
+        toast.error(err instanceof Error ? err.message : 'USDCx refund failed');
+        return null;
+      }
+    },
+    [getExecutor]
+  );
+
+  // ========== Record Fetching (continued) ==========
+
+
   const fetchRecords = useCallback(async (): Promise<unknown[]> => {
     if (!wallet.connected) return [];
 
@@ -1250,10 +1691,10 @@ export function useOnyxWallet() {
       // Shield wallet may use recordName OR functionName — accept both patterns.
       const validRecords = (records as WalletRecord[]).filter((r) => {
         if (r.spent) return false;
-        // Accept by recordName (Leo wallet style) — v4 adds MintCertificate, ProofToken, ProofChallenge, BountyPledge
-        if (r.recordName === 'AssetArtifact' || r.recordName === 'EscrowReceipt' || r.recordName === 'BuyerReceipt' || r.recordName === 'SellerReceipt' || r.recordName === 'MintCertificate' || r.recordName === 'ProofToken' || r.recordName === 'ProofChallenge' || r.recordName === 'BountyPledge') return true;
+        // Accept by recordName (Leo wallet style) — v5 adds SaleRecord, PurchaseReceipt
+        if (r.recordName === 'AssetArtifact' || r.recordName === 'EscrowReceipt' || r.recordName === 'BuyerReceipt' || r.recordName === 'SellerReceipt' || r.recordName === 'MintCertificate' || r.recordName === 'ProofToken' || r.recordName === 'ProofChallenge' || r.recordName === 'BountyPledge' || r.recordName === 'SaleRecord' || r.recordName === 'PurchaseReceipt') return true;
         // Accept by functionName (Shield wallet style — knows the function that created the record)
-        if (r.functionName === 'mint_artifact' || r.functionName === 'create_escrow' || r.functionName === 'pay_verification' || r.functionName === 'pay_verification_usdcx' || r.functionName === 'prove_for_resale' || r.functionName === 'report_stolen_with_bounty' || r.functionName === 'release_escrow' || r.functionName === 'refund_escrow') return true;
+        if (r.functionName === 'mint_artifact' || r.functionName === 'create_escrow' || r.functionName === 'pay_verification' || r.functionName === 'pay_verification_usdcx' || r.functionName === 'prove_for_resale' || r.functionName === 'report_stolen_with_bounty' || r.functionName === 'release_escrow' || r.functionName === 'refund_escrow' || r.functionName === 'create_sale' || r.functionName === 'buy_sale_escrow' || r.functionName === 'buy_sale_usdcx' || r.functionName === 'complete_sale_escrow' || r.functionName === 'complete_sale_usdcx') return true;
         // Fallback: if no recordName/functionName but record has commitment, include it
         if (!r.recordName && !r.functionName && r.commitment) return true;
         return false;
@@ -1284,6 +1725,10 @@ export function useOnyxWallet() {
         let tag_commitment = extractRecordField(rec as Record<string, unknown>, 'tag_commitment');
         let artifact_hash = extractRecordField(rec as Record<string, unknown>, 'artifact_hash');
         let proof_token = extractRecordField(rec as Record<string, unknown>, 'token');
+        // v5 SaleRecord fields
+        let sale_id = extractRecordField(rec as Record<string, unknown>, 'sale_id');
+        let sale_price = extractRecordField(rec as Record<string, unknown>, 'price');
+        let sale_currency = extractRecordField(rec as Record<string, unknown>, 'currency');
 
         // Strategy 2: If wallet gave us a ciphertext field, try to decrypt it
         if (!tag_hash && rec.ciphertext && walletAny.decrypt) {
@@ -1306,6 +1751,9 @@ export function useOnyxWallet() {
               tag_commitment = tag_commitment || parsed.tag_commitment || '';
               artifact_hash = artifact_hash || parsed.artifact_hash || '';
               proof_token = proof_token || parsed.token || '';
+              sale_id = sale_id || parsed.sale_id || '';
+              sale_price = sale_price || parsed.price || '';
+              sale_currency = sale_currency || parsed.currency || '';
             }
           } catch (e) {
             console.warn('[OnyxWallet] Inline decrypt failed:', e);
@@ -1341,6 +1789,9 @@ export function useOnyxWallet() {
                 tag_commitment = parsed.tag_commitment || '';
                 artifact_hash = parsed.artifact_hash || '';
                 proof_token = parsed.token || '';
+                sale_id = parsed.sale_id || '';
+                sale_price = parsed.price || '';
+                sale_currency = parsed.currency || '';
               }
             }
           } catch (e) {
@@ -1348,13 +1799,16 @@ export function useOnyxWallet() {
           }
         }
 
-        const data = { brand, tag_hash, serial_hash, model_id, nonce_seed, escrow_id, amount, seller, payment_hash, token_type, tag_commitment, artifact_hash, proof_token };
+        const data = { brand, tag_hash, serial_hash, model_id, nonce_seed, escrow_id, amount, seller, payment_hash, token_type, tag_commitment, artifact_hash, proof_token, sale_id, sale_price, sale_currency };
 
         // Determine record type based on extracted fields
         const isEscrowReceipt = !!escrow_id || rec.recordName === 'EscrowReceipt' || rec.functionName === 'create_escrow';
         const isBuyerReceipt = !!payment_hash || rec.recordName === 'BuyerReceipt' || rec.functionName === 'pay_verification' || rec.functionName === 'pay_verification_usdcx';
-        // v4 new record types
-        const isMintCertificate = rec.recordName === 'MintCertificate' || (!!tag_commitment && !!model_id && !escrow_id && !payment_hash && !proof_token);
+        // v5 new record types — check BEFORE v4 types since SaleRecord has superset of fields
+        const isSaleRecord = rec.recordName === 'SaleRecord' || (rec.functionName === 'create_sale' && (!!sale_id || !!sale_price)) || (!!sale_id && !!sale_price && !!tag_hash);
+        const isPurchaseReceipt = rec.recordName === 'PurchaseReceipt' || rec.functionName === 'buy_sale_escrow' || rec.functionName === 'buy_sale_usdcx';
+        // v4 new record types — only match if NOT a SaleRecord
+        const isMintCertificate = !isSaleRecord && (rec.recordName === 'MintCertificate' || (!!tag_commitment && !!model_id && !escrow_id && !payment_hash && !proof_token));
         const isProofToken = rec.recordName === 'ProofToken' || (!!proof_token && !!artifact_hash);
         const isProofChallenge = rec.recordName === 'ProofChallenge' || (!!proof_token && !!tag_commitment && !artifact_hash);
         const isBountyPledge = rec.recordName === 'BountyPledge' || rec.functionName === 'report_stolen_with_bounty';
@@ -1404,6 +1858,8 @@ export function useOnyxWallet() {
           _isProofToken: isProofToken,
           _isProofChallenge: isProofChallenge,
           _isBountyPledge: isBountyPledge,
+          _isSaleRecord: isSaleRecord,
+          _isPurchaseReceipt: isPurchaseReceipt,
           _raw: rec,
           _plaintext: plaintext,
           _commitment: rec.commitment,
@@ -1449,6 +1905,15 @@ export function useOnyxWallet() {
     executePayVerification,
     executePayVerificationUsdcx,
     convertPublicToPrivate,
+    // Atomic Sales (v5)
+    executeCreateSale,
+    executeBuySaleEscrow,
+    executeBuySaleUsdcx,
+    executeCompleteSaleEscrow,
+    executeCompleteSaleUsdcx,
+    executeCancelSale,
+    executeRefundSaleEscrow,
+    executeRefundSaleUsdcx,
     // Records
     fetchRecords,
     // Auth

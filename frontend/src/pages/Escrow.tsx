@@ -516,6 +516,43 @@ export const Escrow: FC = () => {
         </p>
       </motion.div>
 
+      {/* Escrow explanation banner */}
+      {!buyTitle && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="mb-6 rounded-xl border border-champagne-500/10 bg-gradient-to-br from-champagne-500/[0.04] to-transparent p-5"
+        >
+          <div className="flex gap-3">
+            <ShieldIcon size={20} className="mt-0.5 flex-shrink-0 text-champagne-500/60" />
+            <div className="space-y-2 text-[13px] leading-relaxed text-white/45">
+              <p className="font-semibold text-white/60">What is Escrow?</p>
+              <p>
+                Escrow lets you lock your payment on-chain before receiving an item.
+                Once you verify the item is genuine, you release the funds to the seller.
+                If something goes wrong, your payment is automatically refunded after a timeout period.
+              </p>
+              <p>
+                <span className="text-champagne-400/70">When to use it:</span>{' '}
+                Escrow is designed for <strong className="text-white/55">private deals outside the marketplace</strong> — 
+                for example, when you agree on a purchase directly with a seller and want on-chain payment protection.
+              </p>
+              <p>
+                <span className="text-champagne-400/70">Marketplace purchases</span> already use ONYX&apos;s
+                built-in Atomic Sale system, which handles payment and delivery in a single secure flow.
+                You don&apos;t need Escrow for marketplace items.
+              </p>
+              <div className="mt-1 flex items-center gap-1.5 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2 text-[11px] text-white/30">
+                <span className="text-champagne-500/50">Advanced</span>
+                <span className="text-white/15">—</span>
+                <span>This feature is optional. Most buyers won&apos;t need it.</span>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {renderModeToggle()}
 
       <AnimatePresence mode="wait">

@@ -26,7 +26,7 @@ export const ListingCard: FC<ListingCardProps> = ({ listing, onClick }) => {
   const priceDisplay =
     listing.currency === 'aleo'
       ? `${(listing.price / 1_000_000).toFixed(listing.price % 1_000_000 === 0 ? 0 : 2)} ALEO`
-      : `${listing.price} USDCx`;
+      : `${(listing.price / 1_000_000).toFixed(listing.price % 1_000_000 === 0 ? 0 : 2)} USDCx`;
 
   return (
     <motion.div
@@ -71,23 +71,8 @@ export const ListingCard: FC<ListingCardProps> = ({ listing, onClick }) => {
               <CheckCircleIcon size={12} />
               Verified
             </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 rounded-full bg-gray-600/80 px-2.5 py-1
-                           text-[11px] font-medium text-white/80">
-              Unverified
-            </span>
-          )}
+          ) : null}
         </div>
-
-        {/* Reserved overlay */}
-        {listing.status === 'reserved' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-[2px]">
-            <span className="rounded-lg border border-yellow-500/40 bg-yellow-500/20 px-4 py-2
-                           font-heading text-sm font-bold text-yellow-400 tracking-wider">
-              RESERVED
-            </span>
-          </div>
-        )}
 
         {/* Sold overlay */}
         {listing.status === 'sold' && (

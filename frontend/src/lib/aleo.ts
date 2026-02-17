@@ -1,10 +1,10 @@
 export const ALEO_CONFIG = {
-  programId: import.meta.env.VITE_ALEO_PROGRAM_ID || 'onyxpriv_v4.aleo',
+  programId: import.meta.env.VITE_ALEO_PROGRAM_ID || 'onyxpriv_v5.aleo',
   network: import.meta.env.VITE_ALEO_NETWORK || 'testnet',
   provableApiBase: import.meta.env.VITE_PROVABLE_API_BASE || 'https://api.explorer.provable.com/v1/testnet',
-  // v4: 100% privacy-maximized — 5 public mappings, commitment-based lookups
-  // v3 used raw tag_hash keys, v4 uses BHP256(tag_hash) commitments
-  contractVersion: parseInt(import.meta.env.VITE_CONTRACT_VERSION || '4'),
+  // v5: Atomic purchase + privacy-maximized — 7 public mappings, SaleRecord pattern
+  // v4 had 5 mappings, v5 adds sale_active + sale_paid
+  contractVersion: parseInt(import.meta.env.VITE_CONTRACT_VERSION || '5'),
 };
 
 // ========== ALEO API: Record Ciphertext Retrieval ==========

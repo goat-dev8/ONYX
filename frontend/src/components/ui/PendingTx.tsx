@@ -31,6 +31,13 @@ const TX_LABELS: Record<PendingTxType, string> = {
   refund_escrow: 'Refunding escrow',
   pay_usdcx: 'Processing USDCx payment',
   register_brand: 'Registering brand',
+  create_sale: 'Creating sale',
+  buy_sale_escrow: 'Purchasing with ALEO',
+  buy_sale_usdcx: 'Purchasing with USDCx',
+  complete_sale_escrow: 'Completing sale (ALEO)',
+  complete_sale_usdcx: 'Completing sale (USDCx)',
+  cancel_sale: 'Cancelling sale',
+  refund_sale: 'Refunding sale',
 };
 
 export const PendingTxBanner: FC<PendingTxBannerProps> = ({
