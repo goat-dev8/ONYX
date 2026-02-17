@@ -1,458 +1,649 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/Aleo-ZK%20Privacy-gold?style=for-the-badge" alt="Aleo" />
-  <img src="https://img.shields.io/badge/Leo-Smart%20Contract-black?style=for-the-badge" alt="Leo" />
-  <img src="https://img.shields.io/badge/React-Frontend-blue?style=for-the-badge" alt="React" />
-  <img src="https://img.shields.io/badge/Node.js-Backend-green?style=for-the-badge" alt="Node.js" />
+  <img src="https://img.shields.io/badge/Aleo-Zero_Knowledge-gold?style=for-the-badge" alt="Aleo" />
+  <img src="https://img.shields.io/badge/Leo-Smart_Contract-1a1a2e?style=for-the-badge" alt="Leo" />
+  <img src="https://img.shields.io/badge/React_18-Frontend-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React" />
+  <img src="https://img.shields.io/badge/Express-Backend-000?style=for-the-badge&logo=express" alt="Express" />
+  <img src="https://img.shields.io/badge/TypeScript-Strict-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
 
-<h1 align="center">🔷 ONYX</h1>
-<h3 align="center">Private Product Passports on Aleo Blockchain</h3>
+<h1 align="center">ONYX</h1>
+<h3 align="center">Private Product Passports with Atomic Purchases on Aleo</h3>
 
 <p align="center">
-  <strong>Zero-Knowledge Authentication for Luxury Goods</strong>
+  <em>Zero-knowledge authentication for luxury goods — verify without revealing, own without exposing, trade without trusting.</em>
 </p>
 
 <p align="center">
-  <a href="#-overview">Overview</a> •
-  <a href="#-features">Features</a> •
-  <a href="#-architecture">Architecture</a> •
-  <a href="#-smart-contract">Smart Contract</a> •
-  <a href="#-getting-started">Getting Started</a> •
-  <a href="#-deployment">Deployment</a>
+  <code>onyxpriv_v5.aleo</code> · Deployed on Aleo Testnet · 944 lines of Leo · 22 transitions · 25 tests passed
+</p>
+
+<p align="center">
+  <a href="#the-problem">Problem</a> ·
+  <a href="#how-onyx-works">Solution</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#smart-contract">Smart Contract</a> ·
+  <a href="#privacy-model">Privacy</a> ·
+  <a href="#atomic-purchase-system">Atomic Sales</a> ·
+  <a href="#getting-started">Get Started</a>
 </p>
 
 ---
 
-## 🌟 Overview
+## The Problem
 
-**ONYX** is a production-grade decentralized application (dApp) built on the **Aleo blockchain** that revolutionizes luxury goods authentication through **zero-knowledge proofs**. 
+The global counterfeit luxury goods market exceeds **$500 billion annually**. Existing solutions fail in three ways:
 
-### The Problem
-- 💰 Counterfeit luxury goods represent a **$500B+ annual** global problem
-- 📄 Traditional authentication (paper certificates, QR codes) are easily forged
-- 🔓 Current blockchain solutions expose too much information publicly
+| Approach | Failure |
+|----------|---------|
+| Paper certificates | Easily forged, lost, or transferred separately from the item |
+| Centralized databases | Single point of failure; brand controls all data; no consumer sovereignty |
+| Public blockchains | Expose ownership history, purchase prices, and wallet activity to anyone |
 
-### Our Solution
-- 🔐 **Zero-Knowledge Proofs**: Verify authenticity without revealing sensitive data
-- 🔒 **Private Records**: Ownership information encrypted on-chain
-- 🚨 **Public Stolen Registry**: Anyone can check if an item is reported stolen
-- 🔄 **Cryptographic Transfer**: Secure ownership transfers with ZK proofs
+Luxury buyers need authentication they can **trust** — and **privacy** they can rely on. These two requirements have been fundamentally at odds. Until now.
+
+## How ONYX Works
+
+ONYX creates an **encrypted digital product passport** for every physical luxury item. Each passport is an `AssetArtifact` record on the Aleo blockchain — a private, owner-controlled proof of authenticity that can be verified by anyone without revealing who owns it.
+
+```
+Physical Item (watch, handbag, sneaker)
+        │
+        ▼
+┌─────────────────────────────────┐
+│   AssetArtifact (private record) │
+│   ─────────────────────────────  │
+│   owner:       encrypted         │  ◄── Only you can see this
+│   brand:       encrypted         │
+│   tag_hash:    encrypted         │
+│   serial_hash: encrypted         │
+│   model_id:    encrypted         │
+│   nonce_seed:  encrypted         │
+└─────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────┐
+│   On-Chain Commitment            │
+│   tag_uniqueness[BHP256(tag)]    │  ◄── Anyone can verify this exists
+│   = true                         │      but CANNOT reverse-engineer
+│                                  │      the tag hash from it
+└─────────────────────────────────┘
+```
+
+**Five things you can do with an ONYX passport:**
+
+1. **Verify** — Anyone scans a QR code → checks on-chain commitment → sees "Authentic" or "Stolen" — no private data exposed
+2. **Transfer** — Privately send ownership to another wallet — only sender and recipient know
+3. **Report Stolen** — Permanently flag the item on-chain so it's blocked from all transactions
+4. **Prove Ownership** — Generate a cryptographic proof for potential buyers without revealing your identity
+5. **Sell Atomically** — List on the marketplace, receive payment, and deliver the passport in a single atomic transaction
 
 ---
 
-## ✨ Features
+## Architecture
 
-### 🏭 For Luxury Brands
-- **Brand Registration** - Register as authorized brand on-chain
-- **Mint Passports** - Create tamper-proof digital certificates for products
-- **Link NFC/RFID** - Connect physical chips to blockchain records
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                              ONYX ARCHITECTURE                                   │
+│                                                                                  │
+│   ┌────────────────┐        ┌────────────────┐        ┌──────────────────────┐   │
+│   │    Frontend     │  API   │    Backend      │  RPC   │   Aleo Blockchain    │   │
+│   │   React + Vite  │──────▶│  Express + TS   │──────▶│  onyxpriv_v5.aleo    │   │
+│   │   Port 5173     │◀──────│  Port 3001      │◀──────│  7 mappings          │   │
+│   └───────┬─────────┘       └───────┬─────────┘       └──────────┬───────────┘   │
+│           │                         │                            │               │
+│           │ Wallet RPC              │ BHP256                     │ Records       │
+│           ▼                         ▼                            ▼               │
+│   ┌────────────────┐        ┌────────────────┐        ┌──────────────────────┐   │
+│   │  Shield Wallet  │        │  LowDB (JSON)  │        │  Private Records     │   │
+│   │  Record decrypt │        │  Listings/Sales │        │  AssetArtifact       │   │
+│   │  TX signing     │        │  Artifacts/Auth │        │  SaleRecord          │   │
+│   │  Credits mgmt   │        │  Event log      │        │  PurchaseReceipt     │   │
+│   └────────────────┘        └────────────────┘        │  BuyerReceipt        │   │
+│                                                        │  SellerReceipt       │   │
+│                                                        └──────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
 
-### 👤 For Consumers
-- **Verify Authenticity** - Scan QR code to instantly verify product
-- **Private Ownership** - Your purchase history stays private
-- **Secure Transfer** - Transfer ownership with cryptographic proof
-- **Report Stolen** - Flag items in public stolen registry
+### Data Flow Principle
 
-### 🔍 For Resellers
-- **Generate Proof** - Create ZK proof of ownership for buyers
-- **Verify History** - Check item isn't stolen before purchase
-- **Privacy Preserved** - No need to reveal personal information
+**Private data never leaves the wallet.** The backend stores only:
+- `SHA-256(wallet_address)` — never the raw address
+- `BHP256(tag_hash)` — the commitment, not the tag
+- Listing metadata the seller **chose** to make public (title, image, price)
+- Sale lifecycle state (pending → paid → completed)
+
+The Aleo blockchain stores only:
+- Boolean commitments (`tag_uniqueness[commitment] = true`)
+- Stolen flags (`stolen_commitments[commitment] = true`)
+- Sale state booleans (`sale_active`, `sale_paid`)
+
+**No on-chain mapping reveals who owns what, what was paid, or who bought from whom.**
 
 ---
 
-## 🏗️ Architecture
+## Smart Contract
+
+**Program:** `onyxpriv_v5.aleo` · **Language:** Leo 3.4.0 · **Lines:** 944 · **Constraints:** 503
+
+### Record Types (10)
+
+| Record | Purpose |
+|--------|---------|
+| `AssetArtifact` | The product passport — encrypted proof of ownership with brand, model, serial, tag |
+| `MintCertificate` | Brand's proof that they minted this item |
+| `SaleRecord` | Locked artifact during sale — contains ALL artifact fields plus price, currency, sale_id |
+| `PurchaseReceipt` | Buyer's proof of payment — used for refund claims if seller doesn't deliver |
+| `BuyerReceipt` | Buyer's payment confirmation after completed sale |
+| `SellerReceipt` | Seller's payment confirmation after completed sale |
+| `EscrowReceipt` | Legacy escrow deposit proof (v4 compatibility) |
+| `ProofToken` | Cryptographic ownership proof for resale verification |
+| `ProofChallenge` | Challenge record for proof generation |
+| `BountyPledge` | Locked credits for stolen item recovery bounty |
+
+### On-Chain Mappings (7)
+
+| Mapping | Key | Value | What it reveals |
+|---------|-----|-------|-----------------|
+| `admin` | `0` | address | Who deployed the contract |
+| `registered_brands` | address | bool | Which addresses can mint |
+| `tag_uniqueness` | BHP256(tag) | bool | "A product with this commitment exists" |
+| `stolen_commitments` | BHP256(tag) | bool | "This product is reported stolen" |
+| `escrow_timestamps` | BHP256(id) | block height | "A payment was locked at this block" |
+| `sale_active` | BHP256(sale_id) | bool | "A sale with this commitment is active" |
+| `sale_paid` | BHP256(sale_id) | bool | "A sale with this commitment has been paid" |
+
+> **Privacy evolution:** v2 had 14 mappings (leaked owner, serial, brand per artifact). v3 reduced to 5 with BHP256 commitments. v5 added only 2 boolean mappings for atomic sales — minimal information leak by design.
+
+### All 22 Transitions
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          ONYX ARCHITECTURE                          │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌─────────────┐     ┌─────────────┐     ┌─────────────────────┐   │
-│  │   Frontend  │────▶│   Backend   │────▶│   Aleo Blockchain   │   │
-│  │  React/Vite │     │   Express   │     │   (Leo Contract)    │   │
-│  └─────────────┘     └─────────────┘     └─────────────────────┘   │
-│         │                   │                       │               │
-│         │                   │                       │               │
-│         ▼                   ▼                       ▼               │
-│  ┌─────────────┐     ┌─────────────┐     ┌─────────────────────┐   │
-│  │ Leo Wallet  │     │   LowDB     │     │  Private Records    │   │
-│  │   Shield    │     │  (Cache)    │     │  Public Mappings    │   │
-│  └─────────────┘     └─────────────┘     └─────────────────────┘   │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+Brand Management
+  ├── register_brand()                    — Self-register as a brand (no admin needed)
+  └── admin_remove_brand(address)         — Admin removes a brand
 
-### Tech Stack
+Minting & Transfer
+  ├── mint_artifact(tag, serial, model, owner)  — Brand creates product passport
+  └── transfer_artifact(artifact, new_owner)    — Private ownership transfer
 
-| Layer | Technology |
-|-------|------------|
-| **Smart Contract** | Leo (Aleo's ZK Language) |
-| **Frontend** | React 18 + TypeScript + Vite |
-| **Backend** | Node.js + Express + TypeScript |
-| **Styling** | Tailwind CSS + Framer Motion |
-| **State** | Zustand |
-| **Wallets** | Leo Wallet, Shield Wallet |
-| **Database** | LowDB (JSON) |
+Stolen Reports
+  ├── report_stolen(artifact)                   — Flag item on-chain (irreversible)
+  └── report_stolen_with_bounty(artifact, credits, amount) — Flag + lock bounty
 
----
+Resale Proofs
+  └── prove_for_resale(artifact, salt, verifier) — Generate ZK ownership proof
 
-## 📜 Smart Contract
+Atomic Sale System (v5)
+  ├── create_sale(artifact, price, currency, salt)       — Lock artifact for sale
+  ├── buy_sale_escrow(credits, tag, amount, seller, id)  — Pay with ALEO
+  ├── buy_sale_usdcx(token, seller, amount, tag, id)     — Pay with USDCx
+  ├── complete_sale_escrow(sale, buyer)   — ATOMIC: artifact + credits in one TX
+  ├── complete_sale_usdcx(sale, buyer)    — ATOMIC: artifact delivery
+  ├── cancel_sale(sale)                   — Seller withdraws (before payment only)
+  ├── refund_sale_escrow(receipt)         — Buyer reclaims after timeout
+  └── refund_sale_usdcx(receipt)          — Reset state for USDCx refund
 
-### Deployed Contract
-| Property | Value |
-|----------|-------|
-| **Program ID** | `onyxpriv_v2.aleo` |
-| **Network** | Aleo Testnet |
-| **Credits Integration** | `credits.aleo` (escrow + bounty) |
+Legacy Escrow (v4)
+  ├── create_escrow(credits, tag, amount, seller, salt)  — Lock credits
+  ├── release_escrow(receipt)             — Pay seller
+  └── refund_escrow(receipt)              — Reclaim after timeout
 
-### On-Chain Data Structure
+Verification Payments (v4)
+  ├── pay_verification(credits, seller, amount, tag, salt)  — Pay with ALEO
+  └── pay_verification_usdcx(token, seller, amount, ...)    — Pay with USDCx
 
-```leo
-import credits.aleo;
-
-program onyxpriv_v2.aleo {
-    // Private records
-    record AssetArtifact {
-        owner: address,
-        brand: address,
-        tag_hash: field,
-        serial_hash: field,
-        model_id: u64,
-        nonce_seed: field
-    }
-
-    record EscrowReceipt {
-        owner: address,
-        escrow_id: field,
-        tag_hash: field,
-        amount: u64,
-        seller: address
-    }
-
-    // Public mappings
-    mapping admin: u8 => address;               // deployer
-    mapping authorized_brands: address => bool;  // brand whitelist
-    mapping tag_brand: field => address;         // registry
-    mapping tag_is_stolen: field => bool;        // stolen flag
-    mapping escrow_deposits: field => u64;       // escrow balances
-    mapping bounty_amount: field => u64;         // recovery bounties
-    mapping proof_registry: field => field;      // on-chain proofs
-    // ... and more
-}
-```
-
-### Contract Transitions
-
-| Transition | Description | Privacy | credits.aleo |
-|-----------|-------------|---------|-------|
-| `authorize_brand` | Admin whitelists a brand | Public mapping | — |
-| `revoke_brand` | Admin removes brand | Public mapping | — |
-| `mint_artifact` | Create product passport | Private record | — |
-| `transfer_artifact` | Transfer ownership (blocks stolen) | Consumes/creates records | — |
-| `report_stolen` | Mark item stolen | Public mapping | — |
-| `prove_for_resale` | Generate ZK proof (on-chain) | Proof stored in mapping | — |
-| `create_escrow` | Buyer deposits credits | EscrowReceipt record | `transfer_private_to_public` |
-| `release_escrow` | Pay seller after verification | Consumes receipt | `transfer_public` |
-| `refund_escrow` | Reclaim credits after timeout | Consumes receipt | `transfer_public` |
-| `report_stolen_with_bounty` | Report stolen + deposit bounty | Public mapping | `transfer_private_to_public` |
-
-### Privacy Model
-
-```
-┌────────────────────────────────────────────────────────────────┐
-│                     ALEO PRIVACY MODEL (v2)                    │
-├────────────────────────────────────────────────────────────────┤
-│                                                                │
-│  PRIVATE (Encrypted)              PUBLIC (Visible)             │
-│  ──────────────────              ────────────────              │
-│  • Owner address                 • tag_is_stolen mapping       │
-│  • Brand address                 • authorized_brands mapping   │
-│  • Tag hash                      • escrow_deposits mapping     │
-│  • Serial hash                   • bounty_amount mapping       │
-│  • Model ID                      • proof_registry mapping      │
-│  • Escrow receipt details        • Transaction exists          │
-│                                                                │
-│  Backend stores SHA-256 hashed addresses — never plaintext     │
-│  Only the record OWNER can decrypt private data                │
-│  credits.aleo handles escrow funds atomically                  │
-│                                                                │
-└────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 🖥️ Application Pages
-
-### 🏠 Home (`/`)
-Landing page with hero section, feature cards, and call-to-action.
-
-### 🔐 Vault (`/vault`)
-**Your authenticated items dashboard**
-- View all your AssetArtifact records from wallet
-- See item details: Model ID, Tag Hash, Brand, Status
-- Actions: Transfer, Report Stolen, Generate Proof
-- Real-time stolen status from on-chain registry
-
-### 🎨 Mint (`/mint`)
-**Create new product passports** (Brands only)
-- Register as authorized brand
-- Enter Model ID and Tag Hash
-- Generate QR code for physical product
-- Transaction submitted to Aleo network
-
-### 📱 Scan (`/scan`)
-**Verify product authenticity**
-- Camera QR code scanner
-- Manual tag hash input
-- Results: ✅ Authentic / 🚨 Stolen / ❓ Unknown
-- Shows brand, model, and ownership info
-
-### 🔒 Escrow (`/escrow`)
-**Credit escrow for paid verification**
-- Create escrow: deposit credits for secure purchase
-- Release: pay seller after item verification
-- Refund: reclaim credits after ~1000 block timeout
-- Powered by `credits.aleo` integration
-
----
-
-## 🔗 Wallet Integration
-
-### Supported Wallets
-- **Leo Wallet** (Primary) - [Install](https://leo.app)
-- **Shield Wallet** (Alternative) - [Install](https://shieldwallet.io)
-
-### Wallet Operations
-```typescript
-// Connect wallet
-const { publicKey, connected } = useWallet();
-
-// Sign authentication message
-const signature = await wallet.signMessage(messageBytes);
-
-// Execute on-chain transaction
-const txId = await wallet.executeTransaction({
-  program: 'onyxpriv_v2.aleo',
-  function: 'mint_artifact',
-  inputs: [tagHash, serialHash, modelId, owner],
-  fee: 1000000
-});
-
-// Fetch private records
-const records = await wallet.requestRecords('onyxpriv_v2.aleo');
+Migration
+  ├── bootstrap_stolen(commitment)        — Admin migrates stolen flags
+  └── bootstrap_tag(commitment)           — Admin migrates tag data
 ```
 
 ---
 
-## 🚀 Getting Started
+## Privacy Model
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                           ONYX PRIVACY MODEL (v5)                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ENCRYPTED (only record owner sees)     PUBLIC (anyone can check)            │
+│  ──────────────────────────────────     ─────────────────────────            │
+│  • Who owns each item                  • "An item with this commitment       │
+│  • Item tag hash & serial number          exists" (boolean)                  │
+│  • Brand that minted the item           • "This commitment is flagged        │
+│  • Model ID & nonce seed                  stolen" (boolean)                  │
+│  • Sale price & currency                • "A sale is active/paid"            │
+│  • Buyer/seller addresses                 (boolean, commitment-keyed)        │
+│  • Payment amounts & receipts           • Which addresses are brands         │
+│  • Transfer history                     • Admin address                      │
+│                                                                              │
+│  BACKEND (hashed, never plaintext)      ON-CHAIN COMMITMENT SCHEME           │
+│  ──────────────────────────────────     ─────────────────────────            │
+│  • SHA-256(wallet_address) as seller ID • tag_commitment = BHP256(tag_hash)  │
+│  • Listing metadata (seller chose       • sale_id = BHP256(tag + salt +      │
+│    to publish: title, image, price)       seller_hash)                       │
+│  • Sale lifecycle state                 • sale_commitment = BHP256(sale_id)  │
+│                                         • Knowing commitment ≠ knowing tag   │
+│                                           (one-way hash, irreversible)       │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### What This Means in Practice
+
+| Scenario | What's revealed | What stays private |
+|----------|----------------|-------------------|
+| Buyer scans QR code at a store | "This item is authentic and not stolen" | Who owns it, purchase price, history |
+| Seller lists item on marketplace | Title, image, price, condition, brand name | Seller's real address, tag hash, serial |
+| Buyer purchases item | "A sale was paid" (boolean commitment) | Buyer address, payment amount, item details |
+| Item reported stolen | "This commitment is flagged stolen" | Who reported it, who owned it |
+| Ownership transfer | Nothing | Both parties, the item, the transfer itself |
+
+---
+
+## Atomic Purchase System
+
+### The Problem ONYX v5 Solves
+
+In previous versions (v3/v4), buying an item required **two separate transactions**: the buyer pays, then the seller transfers the artifact. If the seller takes payment and never delivers — the buyer loses their money. This is the classic **trust gap** in peer-to-peer trade.
+
+### The Solution: Three-Phase Atomic Sale
+
+```
+ SELLER                          BLOCKCHAIN                         BUYER
+   │                                 │                                │
+   │  1. create_sale(artifact)       │                                │
+   │────────────────────────────────▶│                                │
+   │  AssetArtifact consumed         │                                │
+   │  SaleRecord created             │                                │
+   │  sale_active[commit] = true     │                                │
+   │                                 │                                │
+   │                                 │   2. buy_sale_escrow(credits)  │
+   │                                 │◀────────────────────────────────│
+   │                                 │   Credits locked in program    │
+   │                                 │   PurchaseReceipt → buyer      │
+   │                                 │   sale_paid[commit] = true     │
+   │                                 │                                │
+   │  3. complete_sale_escrow()      │                                │
+   │────────────────────────────────▶│                                │
+   │                                 │                                │
+   │          ┌──────────────────────┤  ATOMIC TRANSACTION:           │
+   │          │  AssetArtifact ──────│─────────────────────────────▶  │
+   │   ◀──────│  Credits             │   Artifact delivered to buyer  │
+   │          │  BuyerReceipt ───────│─────────────────────────────▶  │
+   │   ◀──────│  SellerReceipt       │   Receipts for both parties   │
+   │          └──────────────────────┤                                │
+   │                                 │   sale_active = false          │
+   │                                 │   sale_paid = false            │
+   │                                 │                                │
+   │  IF ANY ASSERTION FAILS:        │                                │
+   │  Nothing happens. Zero state    │                                │
+   │  change. Buyer keeps credits.   │                                │
+   │  Seller keeps artifact.         │                                │
+```
+
+### Safety Mechanisms
+
+| Protection | How it works |
+|-----------|-------------|
+| **Buyer refund** | After ~1000 blocks (~80 min), buyer calls `refund_sale_escrow` to reclaim credits |
+| **Seller cancel** | Before payment, seller calls `cancel_sale` to get artifact back |
+| **Stolen blocking** | Every transition checks `stolen_commitments` — stolen items can't be sold |
+| **Double-pay prevention** | `assert(!already_paid)` prevents multiple buyers from paying |
+| **Atomic delivery** | `complete_sale` delivers artifact AND releases credits in one TX — both happen or neither |
+
+### Dual Currency Support
+
+| Currency | Buy Transition | Complete Transition | Refund |
+|----------|---------------|-------------------|--------|
+| **ALEO** | `buy_sale_escrow` — credits locked in program | `complete_sale_escrow` — credits released to seller | `refund_sale_escrow` — credits returned to buyer |
+| **USDCx** | `buy_sale_usdcx` — stablecoin paid to seller directly | `complete_sale_usdcx` — artifact delivered | `refund_sale_usdcx` — state reset (off-chain coordination) |
+
+---
+
+## Application Pages
+
+| Page | Route | Description |
+|------|-------|-------------|
+| **Home** | `/` | Landing page with feature highlights and call-to-action |
+| **Vault** | `/vault` | Private dashboard: owned items, active sales, locked artifacts. Auto-refreshes every 30s. |
+| **Marketplace** | `/marketplace` | Browse authenticated items with filters (brand, currency, condition, price sort, pagination) |
+| **Purchase** | `/purchase` | Atomic buy flow with ALEO or USDCx payment |
+| **Mint** | `/mint` | Brand registration + artifact minting with QR code generation |
+| **Scan** | `/scan` | QR code scanner + manual tag input for authenticity verification |
+| **Transfer** | `/transfer` | Private ownership transfer to another wallet |
+| **Prove** | `/prove` | Generate or verify cryptographic ownership proofs |
+| **Stolen** | `/stolen` | Report items as stolen with optional bounty |
+| **Escrow** | `/escrow` | Legacy escrow system for private deals outside the marketplace |
+
+### Complete User Flow
+
+```
+ BRAND                    SELLER                    BUYER                    VERIFIER
+   │                        │                        │                        │
+   │  register_brand()      │                        │                        │
+   │  mint_artifact() ──────▶                        │                        │
+   │  (QR code generated)   │                        │                        │
+   │                        │                        │                        │
+   │                        │  List on Marketplace   │                        │
+   │                        │  create_sale()         │                        │
+   │                        │  → Locked for Sale     │                        │
+   │                        │                        │                        │
+   │                        │                        │  Browse Marketplace    │
+   │                        │                        │  Verify listing        │
+   │                        │                        │  buy_sale_escrow()     │
+   │                        │                        │  → Payment locked      │
+   │                        │                        │                        │
+   │                        │  complete_sale()       │                        │
+   │                        │  → Credits received    │  → Artifact received   │
+   │                        │     + SellerReceipt    │     + BuyerReceipt     │
+   │                        │                        │                        │
+   │                        │                        │  (Later, at a store)   │
+   │                        │                        │                ────────▶
+   │                        │                        │                Scan QR │
+   │                        │                        │                ◀───────│
+   │                        │                        │                "Authentic"
+```
+
+---
+
+## API Reference
+
+### Authentication
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/auth/nonce` | — | Get signature nonce |
+| POST | `/auth/verify` | — | Verify wallet signature → JWT |
+
+### Brands
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/brands/register` | JWT | Register brand |
+| GET | `/brands/me` | JWT | Current brand info |
+| GET | `/brands/:address` | — | Lookup brand |
+| GET | `/brands/chain-status/:address` | — | On-chain registration check |
+
+### Artifacts
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/artifacts/mint` | JWT | Record minted artifact |
+| POST | `/artifacts/transfer` | JWT | Record transfer |
+| POST | `/artifacts/stolen` | JWT | Report stolen |
+| GET | `/artifacts/stolen/check/:tagHash` | — | Check stolen status |
+| GET | `/artifacts/mine` | JWT | List owned artifacts |
+| GET | `/artifacts/:tagHash` | — | Verify authenticity |
+
+### Marketplace
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/listings` | — | Browse with filters and pagination |
+| GET | `/listings/my/all` | JWT | Seller's own listings |
+| GET | `/listings/:id` | — | Listing detail |
+| GET | `/listings/:id/verify` | — | On-chain verification |
+| POST | `/listings` | JWT | Create listing |
+| PATCH | `/listings/:id` | JWT | Update listing |
+| DELETE | `/listings/:id` | JWT | Delist item |
+
+### Atomic Sales
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/sales/create` | JWT | Register new sale |
+| POST | `/sales/purchase` | JWT | Record buyer payment |
+| POST | `/sales/complete` | JWT | Record completion |
+| POST | `/sales/cancel` | JWT | Cancel sale |
+| POST | `/sales/refund` | JWT | Record refund |
+| GET | `/sales/pending-completions` | JWT | Sales awaiting completion |
+| GET | `/sales/my/all` | JWT | User's sales |
+| GET | `/sales/by-listing/:listingId` | — | Sale by listing |
+| GET | `/sales/:saleId/status` | — | Sale status + on-chain state |
+
+---
+
+## Getting Started
 
 ### Prerequisites
 - Node.js 18+
-- Leo Wallet browser extension
-- Aleo testnet credits
+- Shield Wallet browser extension
+- Aleo testnet credits (get from [faucet](https://faucet.aleo.org))
 
 ### Installation
 
 ```bash
-# Clone repository
 git clone https://github.com/goat-dev8/ONYX.git
 cd ONYX
 
-# Install backend dependencies
-cd backend
-npm install
+# Backend
+cd backend && npm install
 
-# Install frontend dependencies
-cd ../frontend
-npm install
+# Frontend
+cd ../frontend && npm install
 ```
 
-### Environment Setup
+### Environment
 
 **Backend** (`backend/.env`):
 ```env
 PORT=3001
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
+JWT_SECRET=your-secret-key
 CORS_ORIGIN=http://localhost:5173
 ```
 
 **Frontend** (`frontend/.env`):
 ```env
 VITE_API_BASE_URL=http://localhost:3001
-VITE_ALEO_PROGRAM_ID=onyxpriv_v2.aleo
+VITE_ALEO_PROGRAM_ID=onyxpriv_v5.aleo
 VITE_ALEO_NETWORK=testnet
 ```
 
-### Run Development
+### Run
 
 ```bash
-# Terminal 1: Start backend
-cd backend
-npm run dev
+# Terminal 1
+cd backend && npm run dev
 
-# Terminal 2: Start frontend
-cd frontend
-npm run dev
+# Terminal 2
+cd frontend && npm run dev
 ```
 
-Visit `http://localhost:5173` and connect your Leo Wallet!
+Open `http://localhost:5173` and connect Shield Wallet.
 
 ---
 
-## 🌐 Deployment
+## Deployment
 
-### Vercel (Frontend)
+### Smart Contract
 
-1. **Connect Repository**
-   ```
-   Vercel Dashboard → New Project → Import from GitHub → ONYX
-   ```
+| Property | Value |
+|----------|-------|
+| Program | `onyxpriv_v5.aleo` |
+| Network | Aleo Testnet |
+| Deploy TX | `at13f6yk45rhzldf0hren4ddnyjlf3kzgejt8fk65ttfs6686agng9sn7w6dv` |
+| Cost | 32.856674 credits |
+| Leo version | 3.4.0 |
+| Constraints | 503 |
 
-2. **Configure Build**
-   - Framework: Vite
-   - Root Directory: `frontend`
-   - Build Command: `npm run build`
-   - Output Directory: `dist`
+### Frontend → Vercel
 
-3. **Environment Variables**
-   ```
-   VITE_API_BASE_URL=https://your-backend.onrender.com
-   VITE_ALEO_PROGRAM_ID=onyxpriv_v2.aleo
-   VITE_ALEO_NETWORK=testnet
-   ```
+```
+Root Directory: frontend
+Build Command: npm run build
+Output: dist
+```
 
-### Render (Backend)
+Environment: `VITE_API_BASE_URL=https://your-backend.onrender.com`
 
-1. **Create Web Service**
-   ```
-   Render Dashboard → New → Web Service → Connect GitHub → ONYX
-   ```
+### Backend → Render
 
-2. **Configure Service**
-   - Name: `onyx-backend`
-   - Root Directory: `backend`
-   - Build Command: `npm install && npm run build`
-   - Start Command: `npm start`
-   - Plan: Free or Starter
+```
+Root Directory: backend
+Build: npm install && npm run build
+Start: npm start
+```
 
-3. **Environment Variables**
-   ```
-   PORT=3001
-   JWT_SECRET=your-production-secret-key-very-long-and-random
-   CORS_ORIGIN=https://your-frontend.vercel.app
-   NODE_ENV=production
-   ```
-
-### Deployment Checklist
-
-- [ ] Update `CORS_ORIGIN` in Render to match Vercel URL
-- [ ] Update `VITE_API_BASE_URL` in Vercel to match Render URL
-- [ ] Generate strong `JWT_SECRET` for production
-- [ ] Test wallet connection on deployed site
-- [ ] Verify contract calls work on testnet
+Environment: `JWT_SECRET`, `CORS_ORIGIN`, `PORT=3001`
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 ONYX/
-├── contracts/                 # Leo smart contract
-│   ├── src/
-│   │   └── main.leo          # Contract source code
-│   ├── program.json          # Program configuration
-│   └── build/                # Compiled artifacts
+├── contracts_v5/                    # Leo smart contract (v5 — current)
+│   ├── src/main.leo                 # 944 lines, 22 transitions, 7 mappings
+│   ├── imports/                     # credits.aleo, test_usdcx_stablecoin.aleo
+│   ├── build/main.aleo              # Compiled Aleo instructions
+│   └── tests/                       # Test plan + shell scripts
 │
-├── backend/                   # Express API server
+├── backend/                         # Express API server
 │   ├── src/
-│   │   ├── index.ts          # Server entry point
-│   │   ├── routes/           # API endpoints
-│   │   ├── services/         # Business logic
-│   │   ├── middleware/       # Auth middleware
-│   │   └── lib/              # Utilities
-│   └── data/                 # LowDB storage
+│   │   ├── index.ts                 # Server entry, route mounting, BHP256 preload
+│   │   ├── types.ts                 # TypeScript interfaces
+│   │   ├── lib/validate.ts          # Zod request validation schemas
+│   │   ├── middleware/auth.ts       # JWT authentication
+│   │   ├── routes/
+│   │   │   ├── auth.ts              # Nonce/signature authentication
+│   │   │   ├── brands.ts            # Brand registration & lookup
+│   │   │   ├── artifacts.ts         # Mint, transfer, stolen, verify
+│   │   │   ├── listings.ts          # Marketplace CRUD + filters
+│   │   │   └── sales.ts             # Atomic sale lifecycle
+│   │   └── services/
+│   │       ├── db.ts                # LowDB JSON persistence
+│   │       ├── provableApi.ts       # On-chain mapping lookups
+│   │       └── bhp256.ts            # BHP256 commitment computation
+│   └── data/db.json                 # Persistent database
 │
-├── frontend/                  # React application
+├── frontend/                        # React SPA
 │   ├── src/
-│   │   ├── pages/            # Page components
-│   │   ├── components/       # UI components
-│   │   ├── hooks/            # Custom hooks
-│   │   ├── stores/           # Zustand state
-│   │   └── lib/              # Utilities
-│   └── public/               # Static assets
+│   │   ├── App.tsx                  # Router with 10 lazy-loaded pages
+│   │   ├── pages/                   # Home, Vault, Marketplace, Purchase, Mint,
+│   │   │                            # Scan, Transfer, Prove, Stolen, Escrow
+│   │   ├── components/
+│   │   │   ├── marketplace/         # ListingCard, ListingDetailModal, Filters
+│   │   │   ├── PendingSales.tsx      # Active/past sales with Complete/Cancel
+│   │   │   ├── ui/                  # Button, Card, Input, PendingTx
+│   │   │   ├── icons/               # SVG icon components
+│   │   │   └── layout/              # App shell + navigation
+│   │   ├── hooks/
+│   │   │   └── useOnyxWallet.ts     # Central wallet hook (~1910 lines)
+│   │   ├── stores/                  # Zustand: userStore, pendingTxStore
+│   │   ├── lib/                     # API client, types, aleo utils, commitment
+│   │   └── styles/index.css         # Tailwind + custom theme
+│   └── vite.config.ts
 │
-└── README.md                 # This file
+├── contracts/                       # Legacy v4 contract (preserved)
+├── summaryv5.md                     # Complete project documentation
+└── README.md                        # This file
 ```
 
 ---
 
-## 🧪 Testing
+## Tech Stack
 
-See [contracts/tests/TEST_PLAN.md](contracts/tests/TEST_PLAN.md) for the full 22-case test plan covering:
-- Admin authorization (3 tests)
-- Minting with brand checks (3 tests)
-- Transfer with stolen blocking (3 tests)
-- Report stolen (2 tests)
-- Prove for resale with on-chain storage (3 tests)
-- Escrow lifecycle (6 tests)
-- Bounty system (2 tests)
-
-```bash
-cd contracts
-bash tests/run_tests.sh
-```
-
----
-
-## 🔒 Security
-
-- **Private Keys**: Never stored on server, only in user's wallet
-- **JWT Authentication**: Secure API access with signed tokens
-- **CORS Protection**: Restricted to allowed origins
-- **ZK Proofs**: Ownership verified without revealing identity
-- **Rate Limiting**: Prevents abuse of authentication endpoints
-- **Hashed Addresses**: Backend stores SHA-256 hashes, never plaintext addresses
-- **Signature Validation**: Requires ≥64 char Aleo signatures
-- **Escrow Safety**: credits.aleo atomic deposits with timeout-based refunds
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Blockchain | Aleo (testnet) | — |
+| Smart Contract | Leo | 3.4.0 |
+| Frontend | React | 18.2 |
+| Build Tool | Vite | 5.0 |
+| Language | TypeScript (strict) | 5.3 |
+| Styling | Tailwind CSS | 3.3 |
+| Animation | Framer Motion | 10.16 |
+| Routing | React Router DOM | 6.20 |
+| State | Zustand | 4.4 |
+| Wallet | Shield Wallet Adapter | 0.3.0-alpha.2 |
+| SDK | @provablehq/sdk | 0.9.15 |
+| Backend | Express | 4.18 |
+| Validation | Zod | 3.22 |
+| Auth | JSON Web Tokens | 9.0 |
+| Database | LowDB (JSON) | — |
+| Stablecoin | USDCx (test_usdcx_stablecoin.aleo) | — |
 
 ---
 
-## 🛣️ Roadmap
+## Testing
 
-- [x] Smart contract v2 with credits.aleo integration
-- [x] On-chain brand authorization
-- [x] Wallet integration (Leo + Shield)
-- [x] Mint, Transfer, Report Stolen
-- [x] QR code scanning + download
-- [x] Stolen status registry
-- [x] Escrow system (create/release/refund)
-- [x] Bounty system for stolen item recovery
-- [x] On-chain proof registry for resale verification
-- [x] SHA-256 hashed address storage
-- [ ] Mobile app (React Native)
-- [ ] NFC chip integration
-- [ ] Brand dashboard analytics
+### 25 Tests Passed on Testnet
+
+| # | Test | Result |
+|---|------|--------|
+| 1 | Leo contract build (503 constraints) | PASS |
+| 2 | Deploy to testnet (32.85 credits) | PASS |
+| 3 | Brand self-registration (v5) | PASS |
+| 4 | Brand re-registration (v4→v5 migration) | PASS |
+| 5 | Mint artifact | PASS |
+| 6 | View artifacts in Vault | PASS |
+| 7 | Create marketplace listing | PASS |
+| 8 | Create on-chain sale (create_sale) | PASS |
+| 9 | Register sale with backend | PASS |
+| 10 | Reject purchase with insufficient credits | PASS |
+| 11 | Backend createSale endpoint | PASS |
+| 12 | SaleRecord vs MintCertificate detection | PASS |
+| 13 | TypeScript compilation (frontend) | PASS |
+| 14 | TypeScript compilation (backend) | PASS |
+| 15 | Backend startup + BHP256 service | PASS |
+| 16 | Marketplace filters & pagination | PASS |
+| 17 | Full ALEO purchase (buy_sale_escrow) | PASS |
+| 18 | Complete ALEO sale (artifact + credits) | PASS |
+| 19 | Buyer sees artifact after ALEO purchase | PASS |
+| 20 | Full USDCx purchase (buy_sale_usdcx) | PASS |
+| 21 | Complete USDCx sale (artifact delivery) | PASS |
+| 22 | Buyer sees artifact after USDCx purchase | PASS |
+| 23 | End-to-end: Mint → List → Buy → Complete → Vault | PASS |
+| 24 | USDCx fractional pricing (0.30 USDCx) | PASS |
+| 25 | Cancel sale (on-chain + marketplace cleanup) | PASS |
+
+### 25 Bugs Fixed
+
+All bugs discovered during development and testing were identified, root-caused, and resolved. See [summaryv5.md](summaryv5.md) for the complete bug log with root causes and fixes.
+
+Key fixes include:
+- Atomic sale field naming (`saleSalt` → `onChainSaleId` across 7 files)
+- SaleRecord detection priority over MintCertificate
+- USDCx 6-decimal price scaling across 6 display files
+- Cancel sale marketplace cleanup (on-chain + backend + listing deletion)
+- Vault auto-refresh with silent mode and debounce
+- Insufficient credits handling with exact error messages
 
 ---
 
-## 📄 License
+## Version History
 
-MIT License - see [LICENSE](LICENSE) for details.
+| Version | Key Changes |
+|---------|-------------|
+| **v1** | Proof of concept — basic mint and verify |
+| **v2** | Brand system + escrow + stolen reports (14 mappings — over-exposed) |
+| **v3** | Privacy overhaul — 14→5 mappings, BHP256 commitments, no per-artifact public data |
+| **v4** | Marketplace + listings + USDCx stablecoin + bounty system |
+| **v5** | Atomic purchases — 8 new transitions, `SaleRecord`/`PurchaseReceipt` records, dual currency, zero trust gap |
 
 ---
 
-## 🤝 Contributing
+## Security
 
-Contributions welcome! Please read our contributing guidelines before submitting PRs.
+| Measure | Implementation |
+|---------|---------------|
+| Private keys | Never leave the wallet — all signing client-side |
+| Authentication | Wallet signature → JWT token (server-validated) |
+| CORS | Restricted to configured origin |
+| Rate limiting | 100 requests / 15 min on auth endpoints |
+| Address privacy | Backend stores `SHA-256(address)`, never plaintext |
+| On-chain privacy | All lookups use one-way BHP256 commitments |
+| Stolen blocking | Every sale/transfer transition checks `stolen_commitments` |
+| Escrow safety | `credits.aleo` atomic deposits with 1000-block timeout refund |
+| Input validation | Zod schemas on every API endpoint |
+
+---
+
+## License
+
+MIT
 
 ---
 
 <p align="center">
-  <strong>Built with 🔷 on Aleo - Zero-Knowledge Privacy</strong>
+  <strong>Built on Aleo — Where Privacy Meets Proof</strong>
 </p>
-
 <p align="center">
-  <a href="https://aleo.org">Aleo</a> •
-  <a href="https://leo-lang.org">Leo</a> •
+  <a href="https://aleo.org">Aleo</a> ·
+  <a href="https://leo-lang.org">Leo</a> ·
   <a href="https://explorer.aleo.org">Explorer</a>
 </p>
