@@ -1,0 +1,20 @@
+{
+  "program": "onyxpriv_v5.aleo",
+  "version": "5.0.0",
+  "description": "ONYX v5 — Atomic Purchase with Privacy-Maximized Product Passports on Aleo",
+  "license": "MIT",
+  "leo": "3.4.0",
+  "dependencies": [
+    {
+      "name": "credits.aleo",
+      "location": "network",
+      "path": null
+    },
+    {
+      "name": "test_usdcx_stablecoin.aleo",
+      "location": "network",
+      "path": null
+    }
+  ],
+  "dev_dependencies": null
+}
