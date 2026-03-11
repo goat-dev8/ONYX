@@ -351,20 +351,35 @@ export const Purchase: FC = () => {
         </div>
       </motion.div>
 
-      {/* Privacy Notice */}
+      {/* Payment Info */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.15 }}
-        className="rounded-xl border border-emerald-500/15 bg-emerald-500/[0.04] p-4"
+        className={`rounded-xl border p-4 ${
+          listing.currency === 'aleo'
+            ? 'border-emerald-500/15 bg-emerald-500/[0.04]'
+            : 'border-amber-500/15 bg-amber-500/[0.04]'
+        }`}
       >
         <div className="flex items-start gap-3">
-          <ShieldIcon size={18} className="mt-0.5 flex-shrink-0 text-emerald-500/60" />
+          <ShieldIcon size={18} className={`mt-0.5 flex-shrink-0 ${
+            listing.currency === 'aleo' ? 'text-emerald-500/60' : 'text-amber-500/60'
+          }`} />
           <div className="text-xs leading-relaxed text-white/40">
-            <span className="font-semibold text-emerald-400/70">Atomic Purchase</span>{' — '}
-            Your payment is locked on-chain. The seller must deliver the artifact to receive credits.
-            If the seller doesn&apos;t complete within ~1000 blocks, you can reclaim your payment.
-            No middleman. No trust required.
+            {listing.currency === 'aleo' ? (
+              <>
+                <span className="font-semibold text-emerald-400/70">Escrow Protected</span>{' — '}
+                Your ALEO credits are locked in the smart contract. The seller must deliver the artifact to claim payment.
+                If they don&apos;t complete within ~1000 blocks, you can reclaim your credits from the Vault.
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-amber-400/70">Direct Payment</span>{' — '}
+                {listing.currency === 'usad' ? 'USAD' : 'USDCx'} is sent directly to the seller.
+                The seller is then expected to deliver the artifact. This is not escrowed.
+              </>
+            )}
           </div>
         </div>
       </motion.div>
@@ -411,7 +426,7 @@ export const Purchase: FC = () => {
                   }`}
                 >
                   <div className="font-heading text-sm font-semibold text-blue-300">Pay with ALEO</div>
-                  <p className="mt-1 text-xs text-white/40">Private credits escrow</p>
+                  <p className="mt-1 text-xs text-white/40">Escrowed — refundable if undelivered</p>
                   <div className="mt-2 font-mono text-lg font-bold text-white/80">
                     {formatPrice(listing.price, 'aleo')}
                   </div>
@@ -428,7 +443,7 @@ export const Purchase: FC = () => {
                   }`}
                 >
                   <div className="font-heading text-sm font-semibold text-emerald-300">Pay with USDCx</div>
-                  <p className="mt-1 text-xs text-white/40">Stablecoin payment</p>
+                  <p className="mt-1 text-xs text-white/40">Direct to seller</p>
                   <div className="mt-2 font-mono text-lg font-bold text-white/80">
                     {formatPrice(listing.price, 'usdcx')}
                   </div>
@@ -445,7 +460,7 @@ export const Purchase: FC = () => {
                   }`}
                 >
                   <div className="font-heading text-sm font-semibold text-violet-300">Pay with USAD</div>
-                  <p className="mt-1 text-xs text-white/40">Stablecoin payment</p>
+                  <p className="mt-1 text-xs text-white/40">Direct to seller</p>
                   <div className="mt-2 font-mono text-lg font-bold text-white/80">
                     {formatPrice(listing.price, 'usad')}
                   </div>
@@ -470,8 +485,10 @@ export const Purchase: FC = () => {
             </div>
             <h3 className="font-heading text-lg font-semibold text-emerald-300">Payment Deposited!</h3>
             <p className="text-sm text-white/50">
-              Your payment is securely locked on-chain. The seller will now deliver your artifact.
-              If not completed within ~1000 blocks, you can reclaim your payment.
+              {listing.currency === 'aleo'
+                ? 'Your ALEO credits are securely escrowed on-chain. The seller will now deliver your artifact. If not completed within ~1000 blocks, you can reclaim your credits from your Vault.'
+                : `Your ${listing.currency === 'usad' ? 'USAD' : 'USDCx'} has been sent to the seller. They will now deliver your artifact.`
+              }
             </p>
             {onChainTxId ? (
               <a

@@ -26,7 +26,7 @@ import type { Artifact } from '../lib/types';
 export const Vault: FC = () => {
   const wallet = useWallet();
   const { setVisible: openWalletModal } = useWalletModal();
-  const { authenticate, executeTransfer, executeReportStolen, executeProveForResale, executeCreateSale, executeCancelSale, executeRefundSaleEscrow, executeRefundSaleUsdcx, executeRefundSaleUsad, fetchRecords, loading } = useOnyxWallet();
+  const { authenticate, executeTransfer, executeReportStolen, executeProveForResale, executeCreateSale, executeCancelSale, executeRefundSaleEscrow, fetchRecords, loading } = useOnyxWallet();
   const { isAuthenticated, artifacts, setArtifacts } = useUserStore();
   const { addPendingTx, hasPendingOfType, getPendingByType } = usePendingTxStore();
   
@@ -588,29 +588,24 @@ export const Vault: FC = () => {
   const handleRefundPurchase = async (idx: number) => {
     const receipt = purchaseReceipts[idx];
     if (!receipt) return;
+    const data = (receipt.data || {}) as Record<string, string>;
+    const currency = (data.currency || '').replace(/\.private$/, '').replace(/u8$/, '').trim();
+    if (currency === '1' || currency === '2') {
+      toast.error('Stablecoin purchases are paid directly to the seller and cannot be refunded on-chain.');
+      return;
+    }
     setRefundingIdx(idx);
     try {
-      const data = (receipt.data || {}) as Record<string, string>;
-      const currency = (data.currency || '').replace(/\.private$/, '').replace(/u8$/, '').trim();
       const recordInput = receipt as { _plaintext?: string; _raw?: Record<string, unknown> };
-      let txId: string | null = null;
-
-      if (currency === '2') {
-        txId = await executeRefundSaleUsad(recordInput);
-      } else if (currency === '1') {
-        txId = await executeRefundSaleUsdcx(recordInput);
-      } else {
-        txId = await executeRefundSaleEscrow(recordInput);
-      }
+      const txId = await executeRefundSaleEscrow(recordInput);
 
       if (txId) {
-        const txType = currency === '2' ? 'refund_sale_usad' : currency === '1' ? 'refund_sale_usdcx' : 'refund_sale_escrow';
         addPendingTx({
           id: txId,
-          type: txType as 'refund_sale_escrow',
+          type: 'refund_sale_escrow',
           meta: { action: 'refund' },
         });
-        toast.success('Refund submitted! Credits will be returned.');
+        toast.success('Refund submitted! Your ALEO credits will be returned.');
         setPurchaseReceipts(prev => prev.filter((_, i) => i !== idx));
         setTimeout(() => loadArtifacts(), 3000);
       }
@@ -956,7 +951,7 @@ export const Vault: FC = () => {
             </span>
           </div>
           <p className="mb-4 text-xs text-white/30">
-            Active purchase receipts. If the seller doesn&apos;t complete within ~1000 blocks, you can request a refund.
+            Active purchase receipts. ALEO escrow purchases can be refunded after ~1000 blocks if the seller doesn&apos;t deliver.
           </p>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {purchaseReceipts.map((rec, idx) => {
@@ -981,13 +976,20 @@ export const Vault: FC = () => {
                   {saleIdField && (
                     <p className="font-mono text-xs text-blue-400/50 truncate">Sale: {saleIdField.slice(0,12)}...</p>
                   )}
-                  <button
-                    onClick={() => handleRefundPurchase(idx)}
-                    disabled={refundingIdx === idx}
-                    className="w-full rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
-                  >
-                    {refundingIdx === idx ? 'Refunding...' : 'Request Refund (after ~1000 blocks)'}
-                  </button>
+                  {purchaseCurrency === '0' || purchaseCurrency === '' ? (
+                    <button
+                      onClick={() => handleRefundPurchase(idx)}
+                      disabled={refundingIdx === idx}
+                      className="w-full rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+                    >
+                      {refundingIdx === idx ? 'Refunding...' : 'Refund Escrow (after ~1000 blocks)'}
+                    </button>
+                  ) : (
+                    <div className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2 text-center">
+                      <p className="text-xs text-white/40">Paid directly to seller</p>
+                      <p className="mt-0.5 text-[10px] text-white/25">Awaiting seller to deliver your item</p>
+                    </div>
+                  )}
                 </div>
               );
             })}
