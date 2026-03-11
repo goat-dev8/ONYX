@@ -1923,7 +1923,7 @@ export function useOnyxWallet() {
           }
         }
 
-        const data = { brand, tag_hash, serial_hash, model_id, nonce_seed, escrow_id, amount, seller, payment_hash, token_type, tag_commitment, artifact_hash, proof_token, sale_id, sale_price, sale_currency };
+        const data = { brand, tag_hash, serial_hash, model_id, nonce_seed, escrow_id, amount, seller, payment_hash, token_type, tag_commitment, artifact_hash, proof_token, sale_id, sale_price, sale_currency, currency: sale_currency };
 
         // Determine record type based on extracted fields
         const isEscrowReceipt = false; // Legacy escrow removed in v6
