@@ -42,6 +42,7 @@ export const Stolen: FC = () => {
   const [bountyAmount, setBountyAmount] = useState('');
   const [claimAddress, setClaimAddress] = useState('');
   const [claimTxId, setClaimTxId] = useState<string | null>(null);
+  const [claimingIdx, setClaimingIdx] = useState<number | null>(null);
   const [reportComplete, setReportComplete] = useState<{
     tagHash: string;
     txId: string;
@@ -182,7 +183,7 @@ export const Stolen: FC = () => {
     loadFromWallet();
   };
 
-  const handleClaimBounty = async (pledge: WalletArtifact) => {
+  const handleClaimBounty = async (pledge: WalletArtifact, idx: number) => {
     if (!claimAddress || !claimAddress.startsWith('aleo1')) {
       toast.error('Enter a valid claimer address');
       return;
@@ -191,10 +192,20 @@ export const Stolen: FC = () => {
       toast.error('Bounty pledge record not available from wallet');
       return;
     }
-    const txId = await executeClaimBounty({ _raw: pledge._raw }, claimAddress);
-    if (txId) {
-      setClaimTxId(txId);
-      toast.success('Bounty payout submitted!');
+    setClaimingIdx(idx);
+    try {
+      const txId = await executeClaimBounty({ _raw: pledge._raw }, claimAddress);
+      if (txId) {
+        setClaimTxId(txId);
+        toast.success('Bounty payout submitted!');
+        // Remove the paid pledge from the list
+        setBountyPledges(prev => prev.filter((_, i) => i !== idx));
+      }
+    } catch (err) {
+      console.error('[Stolen] Claim bounty error:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to claim bounty');
+    } finally {
+      setClaimingIdx(null);
     }
   };
 
@@ -398,9 +409,9 @@ export const Stolen: FC = () => {
                       </div>
                       <Button
                         size="sm"
-                        onClick={() => handleClaimBounty(pledge)}
-                        loading={loading}
-                        disabled={!claimAddress || !claimAddress.startsWith('aleo1')}
+                        onClick={() => handleClaimBounty(pledge, idx)}
+                        loading={claimingIdx === idx}
+                        disabled={!claimAddress || !claimAddress.startsWith('aleo1') || claimingIdx !== null}
                       >
                         Pay Bounty
                       </Button>
