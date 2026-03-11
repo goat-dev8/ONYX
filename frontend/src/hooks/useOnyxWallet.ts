@@ -1935,7 +1935,7 @@ export function useOnyxWallet() {
         const isMintCertificate = !isSaleRecord && (rec.recordName === 'MintCertificate' || (!!tag_commitment && !!model_id && !escrow_id && !payment_hash && !proof_token));
         const isProofToken = rec.recordName === 'ProofToken' || (!!proof_token && !!artifact_hash);
         const isProofChallenge = rec.recordName === 'ProofChallenge' || (!!proof_token && !!tag_commitment && !artifact_hash);
-        const isBountyPledge = rec.recordName === 'BountyPledge' || rec.functionName === 'report_stolen_with_bounty';
+        const isBountyPledge = rec.recordName === 'BountyPledge' || (rec.functionName === 'report_stolen_with_bounty' && !!amount && !!tag_commitment && !brand && !serial_hash);
 
         // Build plaintext string if not available but we have extracted fields
         let plaintext = rec.plaintext;

@@ -380,9 +380,9 @@ export const Stolen: FC = () => {
                     value={claimAddress}
                     onChange={setClaimAddress}
                   />
-                  {bountyPledges.map((pledge) => (
+                  {bountyPledges.map((pledge, idx) => (
                     <div
-                      key={`claim-${pledge.tagHash}`}
+                      key={`claim-${idx}-${pledge.tagHash}`}
                       className="flex items-center gap-3 rounded-xl border border-amber-500/15 bg-amber-500/[0.04] p-4"
                     >
                       <DiamondIcon size={16} className="text-amber-400/60" />
