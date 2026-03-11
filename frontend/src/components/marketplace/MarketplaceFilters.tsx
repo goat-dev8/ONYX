@@ -83,7 +83,7 @@ export const MarketplaceFilters: FC<MarketplaceFiltersProps> = ({ filters, onCha
 
         {/* Currency toggle */}
         <div className="flex overflow-hidden rounded-lg border border-white/10">
-          {(['all', 'aleo', 'usdcx'] as const).map((c) => {
+          {(['all', 'aleo', 'usdcx', 'usad'] as const).map((c) => {
             const isActive = c === 'all'
               ? !filters.currency
               : filters.currency === c;
@@ -194,7 +194,7 @@ export const MarketplaceFilters: FC<MarketplaceFiltersProps> = ({ filters, onCha
               {/* Price range */}
               <div className="space-y-1.5">
                 <label className="text-[11px] font-medium uppercase tracking-wider text-white/40">
-                  Price Range {filters.currency === 'usdcx' ? '(USDCx)' : '(ALEO)'}
+                  Price Range {filters.currency === 'usdcx' ? '(USDCx)' : filters.currency === 'usad' ? '(USAD)' : '(ALEO)'}
                 </label>
                 <div className="flex items-center gap-2">
                   <input

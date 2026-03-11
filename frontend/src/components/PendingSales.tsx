@@ -27,6 +27,7 @@ export const PendingSales: FC<PendingSalesProps> = ({ onRefresh }) => {
     fetchRecords,
     executeCompleteSaleEscrow,
     executeCompleteSaleUsdcx,
+    executeCompleteSaleUsad,
     executeCancelSale,
   } = useOnyxWallet();
   const { addPendingTx } = usePendingTxStore();
@@ -88,6 +89,8 @@ export const PendingSales: FC<PendingSalesProps> = ({ onRefresh }) => {
 
       if (sale.currency === 'aleo') {
         txId = await executeCompleteSaleEscrow(recordInput, buyerAddr);
+      } else if (sale.currency === 'usad') {
+        txId = await executeCompleteSaleUsad(recordInput, buyerAddr);
       } else {
         txId = await executeCompleteSaleUsdcx(recordInput, buyerAddr);
       }
@@ -97,7 +100,7 @@ export const PendingSales: FC<PendingSalesProps> = ({ onRefresh }) => {
         return;
       }
 
-      const txType: PendingTxType = sale.currency === 'aleo' ? 'complete_sale_escrow' : 'complete_sale_usdcx';
+      const txType: PendingTxType = sale.currency === 'aleo' ? 'complete_sale_escrow' : sale.currency === 'usad' ? 'complete_sale_usad' : 'complete_sale_usdcx';
       addPendingTx({
         id: txId,
         type: txType,
@@ -179,7 +182,7 @@ export const PendingSales: FC<PendingSalesProps> = ({ onRefresh }) => {
 
   const formatPrice = (price: number, currency: string) => {
     const amount = (price / 1_000_000).toFixed(2);
-    return currency === 'aleo' ? `${amount} ALEO` : `${amount} USDCx`;
+    return currency === 'aleo' ? `${amount} ALEO` : currency === 'usad' ? `${amount} USAD` : `${amount} USDCx`;
   };
 
   if (!connected) return null;

@@ -13,20 +13,35 @@ import { Button, Card, Input, StatusBadge } from '../components/ui/Components';
 import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
 import { api } from '../lib/api';
-import { formatAddress } from '../lib/aleo';
+import { formatAddress, checkStolenStatus } from '../lib/aleo';
 import { TransactionIdDisplay } from '../components/ui/PendingTx';
-import type { Artifact } from '../lib/types';
+
+interface WalletArtifact {
+  tagHash: string;
+  modelId: string;
+  brand: string;
+  stolen: boolean;
+  _fromWallet: boolean;
+  _plaintext?: string;
+  _raw?: Record<string, unknown>;
+  _isBountyPledge?: boolean;
+  _bountyAmount?: string;
+}
 
 export const Stolen: FC = () => {
   const wallet = useWallet();
   const { setVisible: openWalletModal } = useWalletModal();
-  const { authenticate, executeReportStolen, executeReportStolenWithBounty, fetchRecords, loading } = useOnyxWallet();
-  const { isAuthenticated, artifacts, setArtifacts } = useUserStore();
+  const { authenticate, executeReportStolen, executeReportStolenWithBounty, executeClaimBounty, fetchRecords, loading } = useOnyxWallet();
+  const { isAuthenticated } = useUserStore();
 
   const [localLoading, setLocalLoading] = useState(false);
-  const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
+  const [walletArtifacts, setWalletArtifacts] = useState<WalletArtifact[]>([]);
+  const [bountyPledges, setBountyPledges] = useState<WalletArtifact[]>([]);
+  const [selectedArtifact, setSelectedArtifact] = useState<WalletArtifact | null>(null);
   const [confirmModal, setConfirmModal] = useState(false);
   const [bountyAmount, setBountyAmount] = useState('');
+  const [claimAddress, setClaimAddress] = useState('');
+  const [claimTxId, setClaimTxId] = useState<string | null>(null);
   const [reportComplete, setReportComplete] = useState<{
     tagHash: string;
     txId: string;
@@ -47,7 +62,7 @@ export const Stolen: FC = () => {
 
   useEffect(() => {
     if (isAuthenticated && walletAddress) {
-      loadArtifacts();
+      loadFromWallet();
     }
   }, [isAuthenticated, walletAddress]);
 
@@ -55,32 +70,69 @@ export const Stolen: FC = () => {
     await authenticate();
   };
 
-  const loadArtifacts = async () => {
+  const loadFromWallet = async () => {
     setLocalLoading(true);
     try {
-      const response = await api.getMyArtifacts();
-      const backendArtifacts = response.artifacts as unknown as Artifact[];
+      const records = await fetchRecords();
+      const allRecords = (records || []) as Record<string, unknown>[];
 
-      try {
-        const walletRecords = await fetchRecords();
-        const enrichedArtifacts = backendArtifacts.map((artifact) => {
-          const walletRecord = (walletRecords as Array<{ data?: { tag_hash?: string }; _plaintext?: string }>).find(
-            (r) => r.data?.tag_hash?.includes(artifact.tagHash)
-          );
-          return {
-            ...artifact,
-            _fromWallet: !!walletRecord,
-            _plaintext: walletRecord?._plaintext,
-            _raw: walletRecord,
-          };
+      const artifacts: WalletArtifact[] = [];
+      const pledges: WalletArtifact[] = [];
+
+      for (const rec of allRecords) {
+        const data = (rec.data || {}) as Record<string, string>;
+        const tagHash = (data.tag_hash || '').replace(/\.private$/, '').replace(/field$/, '').trim();
+
+        if (rec._isBountyPledge && tagHash) {
+          const amount = (data.amount || '').replace(/\.private$/, '').replace(/u64$/, '').trim();
+          pledges.push({
+            tagHash,
+            modelId: '',
+            brand: '',
+            stolen: true,
+            _fromWallet: true,
+            _plaintext: rec._plaintext as string | undefined,
+            _raw: rec as Record<string, unknown>,
+            _isBountyPledge: true,
+            _bountyAmount: amount,
+          });
+          continue;
+        }
+
+        // Skip non-AssetArtifact records
+        if (rec._isSaleRecord || rec._isMintCertificate || rec._isProofToken ||
+            rec._isProofChallenge || rec._isEscrowReceipt || rec._isBuyerReceipt ||
+            rec._isPurchaseReceipt) {
+          continue;
+        }
+
+        if (!tagHash) continue;
+
+        const modelId = (data.model_id || '').replace(/\.private$/, '').replace(/u64$/, '').trim();
+        const brand = (data.brand || '').replace(/\.private$/, '');
+
+        // Check stolen status on-chain
+        let stolen = false;
+        try {
+          stolen = await checkStolenStatus(tagHash);
+        } catch { /* not stolen */ }
+
+        artifacts.push({
+          tagHash,
+          modelId,
+          brand,
+          stolen,
+          _fromWallet: true,
+          _plaintext: rec._plaintext as string | undefined,
+          _raw: rec as Record<string, unknown>,
         });
-        setArtifacts(enrichedArtifacts);
-      } catch {
-        setArtifacts(backendArtifacts);
       }
+
+      setWalletArtifacts(artifacts);
+      setBountyPledges(pledges);
     } catch (err) {
-      console.error('[Stolen] Load artifacts error:', err);
-      toast.error('Failed to load artifacts');
+      console.error('[Stolen] Load wallet records error:', err);
+      toast.error('Failed to load wallet records');
     } finally {
       setLocalLoading(false);
     }
@@ -94,9 +146,14 @@ export const Stolen: FC = () => {
     const bountyValue = Math.round(bountyAleo * 1_000_000); // Convert ALEO to microcredits
 
     if (bountyValue > 0) {
-      txId = await executeReportStolenWithBounty(selectedArtifact, bountyValue);
+      txId = await executeReportStolenWithBounty(
+        { tagHash: selectedArtifact.tagHash, _plaintext: selectedArtifact._plaintext, _raw: selectedArtifact._raw as { id?: string; ciphertext?: string } | undefined },
+        bountyValue
+      );
     } else {
-      txId = await executeReportStolen(selectedArtifact);
+      txId = await executeReportStolen(
+        { tagHash: selectedArtifact.tagHash, _plaintext: selectedArtifact._plaintext, _raw: selectedArtifact._raw as { id?: string; ciphertext?: string } | undefined }
+      );
     }
 
     if (txId) {
@@ -120,7 +177,25 @@ export const Stolen: FC = () => {
     setReportComplete(null);
     setSelectedArtifact(null);
     setBountyAmount('');
-    loadArtifacts();
+    setClaimAddress('');
+    setClaimTxId(null);
+    loadFromWallet();
+  };
+
+  const handleClaimBounty = async (pledge: WalletArtifact) => {
+    if (!claimAddress || !claimAddress.startsWith('aleo1')) {
+      toast.error('Enter a valid claimer address');
+      return;
+    }
+    if (!pledge._raw) {
+      toast.error('Bounty pledge record not available from wallet');
+      return;
+    }
+    const txId = await executeClaimBounty({ _raw: pledge._raw }, claimAddress);
+    if (txId) {
+      setClaimTxId(txId);
+      toast.success('Bounty payout submitted!');
+    }
   };
 
   if (!wallet.connected) {
@@ -248,17 +323,20 @@ export const Stolen: FC = () => {
               <label className="mb-2 block text-sm font-medium text-white/60">
                 Select Item to Report
               </label>
-              {artifacts.filter((a) => !a.stolen && a._fromWallet).length === 0 ? (
+              {walletArtifacts.filter((a) => !a.stolen).length === 0 ? (
                 <div className="rounded-lg border border-white/10 bg-white/5 p-6 text-center">
                   <DiamondIcon size={32} className="mx-auto mb-2 text-white/30" />
                   <p className="text-sm text-white/40">
                     No items available to report
                   </p>
+                  <p className="mt-1 text-xs text-white/30">
+                    Items are loaded directly from your wallet. Make sure you have AssetArtifact records.
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {artifacts
-                    .filter((a) => !a.stolen && a._fromWallet)
+                  {walletArtifacts
+                    .filter((a) => !a.stolen)
                     .map((artifact) => (
                       <button
                         key={artifact.tagHash}
@@ -280,7 +358,7 @@ export const Stolen: FC = () => {
                         </div>
                         <div className="flex-1">
                           <p className="font-heading font-semibold text-white">
-                            Model #{artifact.modelId}
+                            Model #{artifact.modelId || '?'}
                           </p>
                           <p className="font-mono text-xs text-white/40">
                             {formatAddress(artifact.tagHash, 8)}
@@ -304,7 +382,7 @@ export const Stolen: FC = () => {
             </Button>
           </Card>
 
-          {artifacts.filter((a) => a.stolen).length > 0 && (
+          {walletArtifacts.filter((a) => a.stolen).length > 0 && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -316,7 +394,7 @@ export const Stolen: FC = () => {
                   Previously Reported Stolen
                 </h3>
                 <div className="space-y-2">
-                  {artifacts
+                  {walletArtifacts
                     .filter((a) => a.stolen)
                     .map((artifact) => (
                       <div
@@ -326,7 +404,7 @@ export const Stolen: FC = () => {
                         <DiamondIcon size={16} className="text-red-400/50" />
                         <div className="flex-1">
                           <p className="text-sm text-white/50">
-                            Model #{artifact.modelId}
+                            Model #{artifact.modelId || '?'}
                           </p>
                           <p className="font-mono text-xs text-white/30">
                             {formatAddress(artifact.tagHash, 8)}
@@ -335,6 +413,64 @@ export const Stolen: FC = () => {
                         <StatusBadge status="stolen" />
                       </div>
                     ))}
+                </div>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* Claim Bounty Section — shows when user has BountyPledge records */}
+          {bountyPledges.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="mt-6"
+            >
+              <Card className="border-gold/10 bg-onyx-900/50">
+                <h3 className="mb-3 font-heading text-sm font-semibold text-gold">
+                  Claim Bounty
+                </h3>
+                <p className="mb-4 text-xs text-white/40">
+                  You have active bounty pledges. If someone found your stolen item, authorize bounty payout to their address.
+                </p>
+                <div className="space-y-3">
+                  <Input
+                    label="Claimer Address"
+                    placeholder="aleo1..."
+                    value={claimAddress}
+                    onChange={setClaimAddress}
+                  />
+                  {bountyPledges.map((pledge) => (
+                      <div
+                        key={`claim-${pledge.tagHash}`}
+                        className="flex items-center gap-3 rounded-lg border border-gold/10 bg-gold/5 p-3"
+                      >
+                        <DiamondIcon size={16} className="text-gold/50" />
+                        <div className="flex-1">
+                          <p className="text-sm text-white/50">
+                            Tag: {formatAddress(pledge.tagHash, 8)}
+                          </p>
+                          {pledge._bountyAmount && (
+                            <p className="text-xs text-gold/50">
+                              Bounty: {(parseInt(pledge._bountyAmount) / 1_000_000).toFixed(2)} ALEO
+                            </p>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => handleClaimBounty(pledge)}
+                          loading={loading}
+                          disabled={!claimAddress}
+                        >
+                          Pay Bounty
+                        </Button>
+                      </div>
+                    ))}
+                  {claimTxId && (
+                    <div className="mt-2">
+                      <TransactionIdDisplay txId={claimTxId} />
+                    </div>
+                  )}
                 </div>
               </Card>
             </motion.div>

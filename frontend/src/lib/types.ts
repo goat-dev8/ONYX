@@ -54,7 +54,7 @@ export interface Listing {
   condition: 'new' | 'like_new' | 'good' | 'fair';
   imageUrl?: string;
   price: number;
-  currency: 'aleo' | 'usdcx';
+  currency: 'aleo' | 'usdcx' | 'usad';
   status: 'active' | 'reserved' | 'sold' | 'delisted';
   createdAt: string;
   updatedAt: string;
@@ -74,7 +74,7 @@ export interface ListingsResponse {
 export interface ListingFilters {
   brand?: string;
   model?: number;
-  currency?: 'aleo' | 'usdcx';
+  currency?: 'aleo' | 'usdcx' | 'usad';
   minPrice?: number;
   maxPrice?: number;
   condition?: string[];
@@ -92,7 +92,7 @@ export interface ListingCreate {
   condition: 'new' | 'like_new' | 'good' | 'fair';
   imageUrl?: string;
   price: number;
-  currency: 'aleo' | 'usdcx';
+  currency: 'aleo' | 'usdcx' | 'usad';
   brandAddress?: string;
 }
 
@@ -116,7 +116,7 @@ export interface Sale {
   title?: string;
   tagHash: string;
   price: number;
-  currency: 'aleo' | 'usdcx';
+  currency: 'aleo' | 'usdcx' | 'usad';
   status: SaleStatus;
   hasBuyer?: boolean;
   buyerAddress?: string;
@@ -130,7 +130,7 @@ export interface SaleStatusResponse {
   onChainSaleId?: string;
   status: SaleStatus;
   price: number;
-  currency: 'aleo' | 'usdcx';
+  currency: 'aleo' | 'usdcx' | 'usad';
   hasBuyer: boolean;
   createdAt: string;
   paidAt?: string;

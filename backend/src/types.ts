@@ -28,7 +28,7 @@ export interface Listing {
   condition: 'new' | 'like_new' | 'good' | 'fair';
   imageUrl?: string;             // Optional product photo URL
   price: number;                 // Asking price (microcredits for ALEO, token units for USDCx)
-  currency: 'aleo' | 'usdcx';   // Payment type
+  currency: 'aleo' | 'usdcx' | 'usad';   // Payment type
   sellerHash: string;            // SHA-256(seller_address) — NEVER raw address
   status: 'active' | 'reserved' | 'sold' | 'delisted';
   createdAt: string;             // ISO timestamp
@@ -47,7 +47,7 @@ export interface ListingCreate {
   condition: 'new' | 'like_new' | 'good' | 'fair';
   imageUrl?: string;
   price: number;
-  currency: 'aleo' | 'usdcx';
+  currency: 'aleo' | 'usdcx' | 'usad';
 }
 
 // ========== Atomic Sale System (v5) ==========
@@ -66,7 +66,7 @@ export interface Sale {
   tagHash: string;                 // Raw tag_hash
   tagCommitment: string;           // BHP256(tag_hash)
   price: number;                   // In microcredits or micro-USDCx
-  currency: 'aleo' | 'usdcx';     // Payment type
+  currency: 'aleo' | 'usdcx' | 'usad';     // Payment type
   status: SaleStatus;
   createSaleTxId: string;          // TX from create_sale
   buySaleTxId?: string;            // TX from buy_sale_escrow/usdcx

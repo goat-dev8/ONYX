@@ -77,7 +77,7 @@ export const WalletProvider: FC<Props> = ({ children }) => {
       wallets={wallets}
       autoConnect={false}
       decryptPermission={DecryptPermission.AutoDecrypt}
-      programs={[ALEO_CONFIG.programId, 'credits.aleo', 'test_usdcx_stablecoin.aleo']}
+      programs={[ALEO_CONFIG.programId, ALEO_CONFIG.payProgramId, 'credits.aleo', 'test_usdcx_stablecoin.aleo', 'test_usad_stablecoin.aleo']}
       onError={(error) => {
         // Completely suppress connection errors - they happen often with Leo Wallet
         if (error.name === 'WalletConnectionError') {

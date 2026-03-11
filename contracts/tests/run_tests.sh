@@ -1,7 +1,7 @@
 #!/bin/bash
 # ================================================================
-# ONYX v4 — Test Script for onyxpriv_v4.aleo
-# Run with: bash contracts_v4/tests/run_tests.sh
+# ONYX v6 — Test Script for onyxpriv_v6.aleo
+# Run with: bash contracts/tests/run_tests.sh
 # Requires: snarkos CLI, funded accounts
 # ================================================================
 
@@ -9,7 +9,7 @@ set -e
 
 # ─── Configuration ───────────────────────────────────────────────
 NETWORK="testnet"
-PROGRAM="onyxpriv_v4.aleo"
+PROGRAM="onyxpriv_v6.aleo"
 API="https://api.explorer.provable.com/v1/${NETWORK}"
 BROADCAST="${API}/transaction/broadcast"
 
@@ -46,7 +46,7 @@ FEE="1000000"
 PRIORITY_FEE="100"
 
 echo "╔═══════════════════════════════════════════════════════════╗"
-echo "║          ONYX v4 — Privacy-Maximized Test Suite          ║"
+echo "║          ONYX v6 — Privacy-Maximized Test Suite          ║"
 echo "╚═══════════════════════════════════════════════════════════╝"
 echo ""
 

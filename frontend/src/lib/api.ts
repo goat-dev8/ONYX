@@ -237,7 +237,7 @@ export const api = {
     return handleResponse<{ listings: Listing[]; count: number }>(response);
   },
 
-  async completeSale(data: { tagHash: string; txId: string; paymentMethod: 'escrow' | 'usdcx' }) {
+  async completeSale(data: { tagHash: string; txId: string; paymentMethod: 'escrow' | 'usdcx' | 'usad' }) {
     const response = await fetch(`${API_BASE_URL}/listings/complete-sale`, {
       method: 'POST',
       headers: authHeaders(),

@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <code>onyxpriv_v5.aleo</code> · Deployed on Aleo Testnet · 944 lines of Leo · 22 transitions · 25 tests passed
+  <code>onyxpriv_v6.aleo</code> + <code>onyxpriv_v6_pay.aleo</code> · Deployed on Aleo Testnet · Modular 2-program architecture · 8 mappings
 </p>
 
 <p align="center">
@@ -87,8 +87,8 @@ Physical Item (watch, handbag, sneaker)
 │                                                                                  │
 │   ┌────────────────┐        ┌────────────────┐        ┌──────────────────────┐   │
 │   │    Frontend     │  API   │    Backend      │  RPC   │   Aleo Blockchain    │   │
-│   │   React + Vite  │──────▶│  Express + TS   │──────▶│  onyxpriv_v5.aleo    │   │
-│   │   Port 5173     │◀──────│  Port 3001      │◀──────│  7 mappings          │   │
+│   │   React + Vite  │──────▶│  Express + TS   │──────▶│  onyxpriv_v6.aleo    │   │
+│   │   Port 5173     │◀──────│  Port 3001      │◀──────│  8 mappings          │   │
 │   └───────┬─────────┘       └───────┬─────────┘       └──────────┬───────────┘   │
 │           │                         │                            │               │
 │           │ Wallet RPC              │ BHP256                     │ Records       │
@@ -123,7 +123,14 @@ The Aleo blockchain stores only:
 
 ## Smart Contract
 
-**Program:** `onyxpriv_v5.aleo` · **Language:** Leo 3.4.0 · **Lines:** 944 · **Constraints:** 503
+**Modular 2-program architecture** to stay within Aleo's per-program variable limit:
+
+| Program | Purpose | Statements |
+|---------|---------|------------|
+| `onyxpriv_v6.aleo` | Core — passports, sales, bounties, proofs | 525 |
+| `onyxpriv_v6_pay.aleo` | Payments — USDCx & USAD stablecoin flows | 32 |
+
+The payment program calls back into the core via helper transitions (`reg_stablecoin_verify`, `reg_stablecoin_buy`) — secured with `assert_neq(self.caller, self.signer)` so only the payment program can invoke them.
 
 ### Record Types (10)
 
@@ -140,10 +147,10 @@ The Aleo blockchain stores only:
 | `ProofChallenge` | Challenge record for proof generation |
 | `BountyPledge` | Locked credits for stolen item recovery bounty |
 
-### On-Chain Mappings (7)
+### On-Chain Mappings (8)
 
 | Mapping | Key | Value | What it reveals |
-|---------|-----|-------|-----------------|
+|---------|-----|-------|------------------|
 | `admin` | `0` | address | Who deployed the contract |
 | `registered_brands` | address | bool | Which addresses can mint |
 | `tag_uniqueness` | BHP256(tag) | bool | "A product with this commitment exists" |
@@ -151,49 +158,50 @@ The Aleo blockchain stores only:
 | `escrow_timestamps` | BHP256(id) | block height | "A payment was locked at this block" |
 | `sale_active` | BHP256(sale_id) | bool | "A sale with this commitment is active" |
 | `sale_paid` | BHP256(sale_id) | bool | "A sale with this commitment has been paid" |
+| `bounty_amounts` | BHP256(tag) | u64 | "A bounty of this amount exists for a stolen item" |
 
-> **Privacy evolution:** v2 had 14 mappings (leaked owner, serial, brand per artifact). v3 reduced to 5 with BHP256 commitments. v5 added only 2 boolean mappings for atomic sales — minimal information leak by design.
+> **Privacy evolution:** v2 had 14 mappings (leaked owner, serial, brand per artifact). v3 reduced to 5 with BHP256 commitments. v6 has 8 mappings — only boolean flags + one bounty amount — minimal information leak by design.
 
-### All 22 Transitions
+### Transitions
 
+**Core Program (`onyxpriv_v6.aleo`):**
 ```
 Brand Management
-  ├── register_brand()                    — Self-register as a brand (no admin needed)
+  ├── register_brand()                    — Self-register as a brand
   └── admin_remove_brand(address)         — Admin removes a brand
 
 Minting & Transfer
   ├── mint_artifact(tag, serial, model, owner)  — Brand creates product passport
   └── transfer_artifact(artifact, new_owner)    — Private ownership transfer
 
-Stolen Reports
-  ├── report_stolen(artifact)                   — Flag item on-chain (irreversible)
-  └── report_stolen_with_bounty(artifact, credits, amount) — Flag + lock bounty
+Stolen Reports & Bounties (v6)
+  ├── report_stolen(artifact)                   — Flag item on-chain
+  ├── report_stolen_with_bounty(artifact, credits, amount) — Flag + lock bounty
+  ├── claim_bounty(pledge, claimer)             — Owner pays bounty to finder
+  └── claim_bounty_recover(artifact, amount)    — Finder proves recovery + claims
+
+Verification Payment
+  └── pay_verification(credits, tag, amount, seller, salt, secret) — ALEO payment
 
 Resale Proofs
   └── prove_for_resale(artifact, salt, verifier) — Generate ZK ownership proof
 
-Atomic Sale System (v5)
-  ├── create_sale(artifact, price, currency, salt)       — Lock artifact for sale
-  ├── buy_sale_escrow(credits, tag, amount, seller, id)  — Pay with ALEO
-  ├── buy_sale_usdcx(token, seller, amount, tag, id)     — Pay with USDCx
-  ├── complete_sale_escrow(sale, buyer)   — ATOMIC: artifact + credits in one TX
-  ├── complete_sale_usdcx(sale, buyer)    — ATOMIC: artifact delivery
-  ├── cancel_sale(sale)                   — Seller withdraws (before payment only)
-  ├── refund_sale_escrow(receipt)         — Buyer reclaims after timeout
-  └── refund_sale_usdcx(receipt)          — Reset state for USDCx refund
+Atomic Sale System
+  ├── create_sale(artifact, price, currency, salt)
+  ├── buy_sale_escrow(credits, tag, amount, seller, id)
+  ├── complete_sale_escrow / complete_sale_usdcx / complete_sale_usad
+  ├── cancel_sale(sale)
+  └── refund_sale_escrow / refund_sale_usdcx / refund_sale_usad
 
-Legacy Escrow (v4)
-  ├── create_escrow(credits, tag, amount, seller, salt)  — Lock credits
-  ├── release_escrow(receipt)             — Pay seller
-  └── refund_escrow(receipt)              — Reclaim after timeout
+Cross-program Helpers (called by payment program only)
+  ├── reg_stablecoin_verify(...)          — Create receipts for stablecoin verification
+  └── reg_stablecoin_buy(...)             — Create PurchaseReceipt for stablecoin purchase
+```
 
-Verification Payments (v4)
-  ├── pay_verification(credits, seller, amount, tag, salt)  — Pay with ALEO
-  └── pay_verification_usdcx(token, seller, amount, ...)    — Pay with USDCx
-
-Migration
-  ├── bootstrap_stolen(commitment)        — Admin migrates stolen flags
-  └── bootstrap_tag(commitment)           — Admin migrates tag data
+**Payment Program (`onyxpriv_v6_pay.aleo`):**
+```
+  ├── pay_verification_usdcx / pay_verification_usad — Stablecoin verification payments
+  └── buy_sale_usdcx / buy_sale_usad                — Stablecoin sale purchases
 ```
 
 ---
@@ -202,7 +210,7 @@ Migration
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                           ONYX PRIVACY MODEL (v5)                            │
+│                           ONYX PRIVACY MODEL (v6)                            │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ENCRYPTED (only record owner sees)     PUBLIC (anyone can check)            │
@@ -430,7 +438,7 @@ CORS_ORIGIN=http://localhost:5173
 **Frontend** (`frontend/.env`):
 ```env
 VITE_API_BASE_URL=http://localhost:3001
-VITE_ALEO_PROGRAM_ID=onyxpriv_v5.aleo
+VITE_ALEO_PROGRAM_ID=onyxpriv_v6.aleo
 VITE_ALEO_NETWORK=testnet
 ```
 
@@ -454,12 +462,11 @@ Open `http://localhost:5173` and connect Shield Wallet.
 
 | Property | Value |
 |----------|-------|
-| Program | `onyxpriv_v5.aleo` |
+| Program | `onyxpriv_v6.aleo` |
 | Network | Aleo Testnet |
-| Deploy TX | `at13f6yk45rhzldf0hren4ddnyjlf3kzgejt8fk65ttfs6686agng9sn7w6dv` |
-| Cost | 32.856674 credits |
+| Deploy TX | _pending deployment_ |
 | Leo version | 3.4.0 |
-| Constraints | 503 |
+| Constraints | 649 |
 
 ### Frontend → Vercel
 

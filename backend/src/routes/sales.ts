@@ -14,7 +14,7 @@ import { Sale } from '../types';
 
 const router = Router();
 const db = DatabaseService.getInstance();
-const PROGRAM_ID = process.env.PROGRAM_ID || 'onyxpriv_v5.aleo';
+const PROGRAM_ID = process.env.PROGRAM_ID || 'onyxpriv_v6.aleo';
 
 // ============================================================
 // POST /sales/create — Register a new on-chain sale

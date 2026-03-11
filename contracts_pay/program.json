@@ -1,0 +1,25 @@
+{
+    "program": "onyxpriv_v6_pay.aleo",
+    "version": "0.1.0",
+    "description": "ONYX v6 Payment Module — Stablecoin (USDCx + USAD) payment transitions",
+    "license": "MIT",
+    "leo": "3.4.0",
+    "dependencies": [
+        {
+            "name": "onyxpriv_v6.aleo",
+            "location": "network",
+            "path": null
+        },
+        {
+            "name": "test_usdcx_stablecoin.aleo",
+            "location": "network",
+            "path": null
+        },
+        {
+            "name": "test_usad_stablecoin.aleo",
+            "location": "network",
+            "path": null
+        }
+    ],
+    "dev_dependencies": null
+}

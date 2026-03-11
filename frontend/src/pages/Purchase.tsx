@@ -14,7 +14,7 @@ type PurchaseStep = 'preview' | 'paying' | 'paid' | 'completed' | 'error';
 export const Purchase: FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { connected, authenticate, executeBuySaleEscrow, executeBuySaleUsdcx } = useOnyxWallet();
+  const { connected, authenticate, executeBuySaleEscrow, executeBuySaleUsdcx, executeBuySaleUsad } = useOnyxWallet();
   const { isAuthenticated } = useUserStore();
   const { addPendingTx } = usePendingTxStore();
   const pendingTxList = usePendingTxStore(s => s.transactions);
@@ -227,10 +227,59 @@ export const Purchase: FC = () => {
     }
   };
 
+  // ─── Buy with USAD ───
+  const handleBuyUsad = async () => {
+    if (!(await ensureAuth())) return;
+    if (!listing || !saleId || !onChainSaleId || !sellerAddress) {
+      toast.error('Missing sale information');
+      return;
+    }
+
+    setStep('paying');
+    setError(null);
+
+    try {
+      const result = await executeBuySaleUsad(
+        sellerAddress,
+        listing.price,
+        listing.tagHash,
+        onChainSaleId
+      );
+
+      if (!result) {
+        setStep('preview');
+        return;
+      }
+
+      setTxId(result);
+      addPendingTx({
+        id: result,
+        type: 'buy_sale_usad',
+        meta: { listingId, saleId: saleId, amount: String(listing.price) },
+      });
+
+      try {
+        await api.purchaseSale({ saleId: saleId, buySaleTxId: result });
+      } catch (err) {
+        console.warn('[Purchase] Backend registration failed:', err);
+      }
+
+      setStep('paid');
+      toast.success('USAD payment complete! Seller will deliver your item.');
+    } catch (err) {
+      console.error('[Purchase] Buy USAD error:', err);
+      setError(err instanceof Error ? err.message : 'USAD purchase failed');
+      setStep('error');
+    }
+  };
+
   // Format price
   const formatPrice = (price: number, currency: string) => {
     if (currency === 'aleo') {
       return `${(price / 1_000_000).toFixed(2)} ALEO`;
+    }
+    if (currency === 'usad') {
+      return `${(price / 1_000_000).toFixed(2)} USAD`;
     }
     return `${(price / 1_000_000).toFixed(2)} USDCx`;
   };
@@ -283,7 +332,7 @@ export const Purchase: FC = () => {
               {formatPrice(listing.price, listing.currency)}
             </div>
             <span className={`inline-block mt-1 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
-              listing.currency === 'aleo' ? 'bg-blue-500/15 text-blue-400' : 'bg-emerald-500/15 text-emerald-400'
+              listing.currency === 'aleo' ? 'bg-blue-500/15 text-blue-400' : listing.currency === 'usad' ? 'bg-violet-500/15 text-violet-400' : 'bg-emerald-500/15 text-emerald-400'
             }`}>
               {listing.currency}
             </span>
@@ -350,7 +399,7 @@ export const Purchase: FC = () => {
             ) : !saleId || !onChainSaleId || !sellerAddress ? (
               <p className="text-sm text-amber-400/70">Invalid sale link. Please go back to the marketplace.</p>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {/* ALEO Credits */}
                 <button
                   onClick={handleBuyEscrow}
@@ -382,6 +431,23 @@ export const Purchase: FC = () => {
                   <p className="mt-1 text-xs text-white/40">Stablecoin payment</p>
                   <div className="mt-2 font-mono text-lg font-bold text-white/80">
                     {formatPrice(listing.price, 'usdcx')}
+                  </div>
+                </button>
+
+                {/* USAD */}
+                <button
+                  onClick={handleBuyUsad}
+                  disabled={listing.currency !== 'usad'}
+                  className={`w-full rounded-xl border p-4 text-left transition-all ${
+                    listing.currency === 'usad'
+                      ? 'border-violet-500/30 bg-violet-500/[0.06] hover:bg-violet-500/[0.12] hover:border-violet-500/50'
+                      : 'border-white/5 bg-white/[0.02] opacity-40 cursor-not-allowed'
+                  }`}
+                >
+                  <div className="font-heading text-sm font-semibold text-violet-300">Pay with USAD</div>
+                  <p className="mt-1 text-xs text-white/40">Stablecoin payment</p>
+                  <div className="mt-2 font-mono text-lg font-bold text-white/80">
+                    {formatPrice(listing.price, 'usad')}
                   </div>
                 </button>
               </div>

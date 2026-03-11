@@ -69,7 +69,7 @@ export const createListingSchema = z.object({
   condition: z.enum(['new', 'like_new', 'good', 'fair']),
   imageUrl: z.string().url().optional(),
   price: z.number().int().positive(),
-  currency: z.enum(['aleo', 'usdcx']),
+  currency: z.enum(['aleo', 'usdcx', 'usad']),
 });
 
 export const updateListingSchema = z.object({

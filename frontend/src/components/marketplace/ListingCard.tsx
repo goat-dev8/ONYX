@@ -23,10 +23,8 @@ const conditionColors: Record<string, string> = {
 };
 
 export const ListingCard: FC<ListingCardProps> = ({ listing, onClick }) => {
-  const priceDisplay =
-    listing.currency === 'aleo'
-      ? `${(listing.price / 1_000_000).toFixed(listing.price % 1_000_000 === 0 ? 0 : 2)} ALEO`
-      : `${(listing.price / 1_000_000).toFixed(listing.price % 1_000_000 === 0 ? 0 : 2)} USDCx`;
+  const currencyLabel = listing.currency === 'aleo' ? 'ALEO' : listing.currency === 'usad' ? 'USAD' : 'USDCx';
+  const priceDisplay = `${(listing.price / 1_000_000).toFixed(listing.price % 1_000_000 === 0 ? 0 : 2)} ${currencyLabel}`;
 
   return (
     <motion.div

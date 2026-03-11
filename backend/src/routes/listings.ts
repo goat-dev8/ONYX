@@ -8,7 +8,7 @@ import { Listing } from '../types';
 
 const router = Router();
 const db = DatabaseService.getInstance();
-const PROGRAM_ID = process.env.PROGRAM_ID || 'onyxpriv_v5.aleo';
+const PROGRAM_ID = process.env.PROGRAM_ID || 'onyxpriv_v6.aleo';
 
 // ============================================================
 // GET /listings — Browse marketplace (public, no auth)
@@ -23,7 +23,7 @@ router.get('/', (req: Request, res: Response): void => {
     const filters: Record<string, unknown> = {};
     if (brand) filters.brand = String(brand);
     if (model) filters.modelId = parseInt(String(model), 10) || undefined;
-    if (currency && (currency === 'aleo' || currency === 'usdcx')) filters.currency = currency;
+    if (currency && (currency === 'aleo' || currency === 'usdcx' || currency === 'usad')) filters.currency = currency;
     if (minPrice) filters.minPrice = parseInt(String(minPrice), 10);
     if (maxPrice) filters.maxPrice = parseInt(String(maxPrice), 10);
     if (condition) filters.condition = String(condition).split(',').filter(Boolean);

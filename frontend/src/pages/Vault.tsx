@@ -26,7 +26,7 @@ import type { Artifact } from '../lib/types';
 export const Vault: FC = () => {
   const wallet = useWallet();
   const { setVisible: openWalletModal } = useWalletModal();
-  const { authenticate, executeTransfer, executeReportStolen, executeProveForResale, executeCreateSale, executeCancelSale, fetchRecords, loading } = useOnyxWallet();
+  const { authenticate, executeTransfer, executeReportStolen, executeProveForResale, executeCreateSale, executeCancelSale, executeRefundSaleEscrow, executeRefundSaleUsdcx, executeRefundSaleUsad, fetchRecords, loading } = useOnyxWallet();
   const { isAuthenticated, artifacts, setArtifacts } = useUserStore();
   const { addPendingTx, hasPendingOfType, getPendingByType } = usePendingTxStore();
   
@@ -34,7 +34,9 @@ export const Vault: FC = () => {
   const [initialLoad, setInitialLoad] = useState(true);
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
   const [saleRecords, setSaleRecords] = useState<Array<Record<string, unknown>>>([]);
+  const [purchaseReceipts, setPurchaseReceipts] = useState<Array<Record<string, unknown>>>([]);
   const [cancellingIdx, setCancellingIdx] = useState<number | null>(null);
+  const [refundingIdx, setRefundingIdx] = useState<number | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastRefreshRef = useRef<number>(0);
   
@@ -52,7 +54,7 @@ export const Vault: FC = () => {
   const [listingDescription, setListingDescription] = useState('');
   const [listingCondition, setListingCondition] = useState<'new' | 'like_new' | 'good' | 'fair'>('new');
   const [listingPrice, setListingPrice] = useState('');
-  const [listingCurrency, setListingCurrency] = useState<'aleo' | 'usdcx'>('aleo');
+  const [listingCurrency, setListingCurrency] = useState<'aleo' | 'usdcx' | 'usad'>('aleo');
   const [listingImageUrl, setListingImageUrl] = useState('');
   const [listingLoading, setListingLoading] = useState(false);
 
@@ -80,6 +82,7 @@ export const Vault: FC = () => {
       if (walletRecords.length > 0) {
         // Filter out non-AssetArtifact records (MintCertificate, ProofToken, SaleRecord, etc.)
         const saleRecs: Array<Record<string, unknown>> = [];
+        const purchaseRecs: Array<Record<string, unknown>> = [];
         const artifactRecords = walletRecords.filter((rec) => {
           const r = rec as Record<string, unknown>;
           if (r._isSaleRecord) {
@@ -87,14 +90,20 @@ export const Vault: FC = () => {
             saleRecs.push(r);
             return false;
           }
-          if (r._isMintCertificate || r._isProofToken || r._isProofChallenge || r._isBountyPledge || r._isEscrowReceipt || r._isBuyerReceipt || r._isPurchaseReceipt) {
-            console.log('[Vault] Skipping non-AssetArtifact record:', r._isMintCertificate ? 'MintCertificate' : r._isProofToken ? 'ProofToken' : r._isProofChallenge ? 'ProofChallenge' : r._isBountyPledge ? 'BountyPledge' : r._isEscrowReceipt ? 'EscrowReceipt' : r._isPurchaseReceipt ? 'PurchaseReceipt' : 'BuyerReceipt');
+          if (r._isPurchaseReceipt) {
+            console.log('[Vault] Found PurchaseReceipt — will show with refund option');
+            purchaseRecs.push(r);
+            return false;
+          }
+          if (r._isMintCertificate || r._isProofToken || r._isProofChallenge || r._isBountyPledge || r._isEscrowReceipt || r._isBuyerReceipt) {
+            console.log('[Vault] Skipping non-AssetArtifact record:', r._isMintCertificate ? 'MintCertificate' : r._isProofToken ? 'ProofToken' : r._isProofChallenge ? 'ProofChallenge' : r._isBountyPledge ? 'BountyPledge' : r._isEscrowReceipt ? 'EscrowReceipt' : 'BuyerReceipt');
             return false;
           }
           return true;
         });
         setSaleRecords(saleRecs);
-        console.log('[Vault] Filtered to', artifactRecords.length, 'AssetArtifact records from', walletRecords.length, 'total,', saleRecs.length, 'SaleRecords');
+        setPurchaseReceipts(purchaseRecs);
+        console.log('[Vault] Filtered to', artifactRecords.length, 'AssetArtifact records from', walletRecords.length, 'total,', saleRecs.length, 'SaleRecords,', purchaseRecs.length, 'PurchaseReceipts');
 
         // Auto-register: update any backend sales with pending_ onChainSaleId
         if (saleRecs.length > 0 && isAuthenticated) {
@@ -450,7 +459,7 @@ export const Vault: FC = () => {
 
       // 2. Create on-chain sale (atomic purchase)
       const saleSalt = `${Date.now()}`;
-      const currencyCode = listingCurrency === 'aleo' ? 0 : 1;
+      const currencyCode = listingCurrency === 'aleo' ? 0 : listingCurrency === 'usdcx' ? 1 : 2;
       try {
         // Find the artifact record from wallet
         const artifactRecord = {
@@ -462,7 +471,7 @@ export const Vault: FC = () => {
         const saleResult = await executeCreateSale(
           artifactRecord,
           priceValue,
-          currencyCode as 0 | 1,
+          currencyCode as 0 | 1 | 2,
           saleSalt
         );
 
@@ -576,6 +585,43 @@ export const Vault: FC = () => {
     }
   };
 
+  const handleRefundPurchase = async (idx: number) => {
+    const receipt = purchaseReceipts[idx];
+    if (!receipt) return;
+    setRefundingIdx(idx);
+    try {
+      const data = (receipt.data || {}) as Record<string, string>;
+      const currency = (data.currency || '').replace(/\.private$/, '').replace(/u8$/, '').trim();
+      const recordInput = receipt as { _plaintext?: string; _raw?: Record<string, unknown> };
+      let txId: string | null = null;
+
+      if (currency === '2') {
+        txId = await executeRefundSaleUsad(recordInput);
+      } else if (currency === '1') {
+        txId = await executeRefundSaleUsdcx(recordInput);
+      } else {
+        txId = await executeRefundSaleEscrow(recordInput);
+      }
+
+      if (txId) {
+        const txType = currency === '2' ? 'refund_sale_usad' : currency === '1' ? 'refund_sale_usdcx' : 'refund_sale_escrow';
+        addPendingTx({
+          id: txId,
+          type: txType as 'refund_sale_escrow',
+          meta: { action: 'refund' },
+        });
+        toast.success('Refund submitted! Credits will be returned.');
+        setPurchaseReceipts(prev => prev.filter((_, i) => i !== idx));
+        setTimeout(() => loadArtifacts(), 3000);
+      }
+    } catch (err) {
+      console.error('[Vault] Refund error:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to refund');
+    } finally {
+      setRefundingIdx(null);
+    }
+  };
+
   if (!wallet.connected) {
     return (
       <div className="mx-auto max-w-4xl py-20 text-center">
@@ -637,7 +683,7 @@ export const Vault: FC = () => {
             <p className="text-sm text-white/40">
               {localLoading && initialLoad
                 ? 'Loading your items...'
-                : `${artifacts.length} authenticated item${artifacts.length !== 1 ? 's' : ''}${saleRecords.length > 0 ? ` · ${saleRecords.length} locked for sale` : ''}`}
+                : `${artifacts.length} authenticated item${artifacts.length !== 1 ? 's' : ''}${saleRecords.length > 0 ? ` · ${saleRecords.length} locked for sale` : ''}${purchaseReceipts.length > 0 ? ` · ${purchaseReceipts.length} purchase${purchaseReceipts.length !== 1 ? 's' : ''}` : ''}`}
             </p>
           </div>
           <button
@@ -859,7 +905,7 @@ export const Vault: FC = () => {
               const saleIdField = (data.sale_id || '').replace(/\.private$/, '').replace(/field$/, '').trim();
               const salePrice = (data.price || '').replace(/\.private$/, '').replace(/u64$/, '').trim();
               const saleCurrency = (data.currency || '').replace(/\.private$/, '').replace(/u8$/, '').trim();
-              const currencyLabel = saleCurrency === '1' ? 'USDCx' : 'ALEO';
+              const currencyLabel = saleCurrency === '1' ? 'USDCx' : saleCurrency === '2' ? 'USAD' : 'ALEO';
               return (
                 <div key={idx} className="rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-4 space-y-3">
                   <div className="flex items-center justify-between">
@@ -883,6 +929,64 @@ export const Vault: FC = () => {
                     className="w-full rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
                   >
                     {cancellingIdx === idx ? 'Cancelling...' : 'Cancel Sale & Unlock Artifact'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* ── MY PURCHASES (PurchaseReceipt records — buyer can refund) ── */}
+      {purchaseReceipts.length > 0 && (
+        <section>
+          <div className="mb-4 flex items-center gap-3">
+            <div className="rounded-lg bg-blue-500/15 p-1.5">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400">
+                <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"></path>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <path d="M16 10a4 4 0 01-8 0"></path>
+              </svg>
+            </div>
+            <h2 className="font-heading text-lg font-semibold text-blue-400/80">
+              My Purchases
+            </h2>
+            <span className="rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-400/60">
+              {purchaseReceipts.length}
+            </span>
+          </div>
+          <p className="mb-4 text-xs text-white/30">
+            Active purchase receipts. If the seller doesn&apos;t complete within ~1000 blocks, you can request a refund.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {purchaseReceipts.map((rec, idx) => {
+              const data = (rec.data || {}) as Record<string, string>;
+              const tagHash = (data.tag_hash || '').replace(/\.private$/, '').replace(/field$/, '').trim();
+              const saleIdField = (data.sale_id || '').replace(/\.private$/, '').replace(/field$/, '').trim();
+              const purchaseAmount = (data.amount || '').replace(/\.private$/, '').replace(/u64$/, '').trim();
+              const purchaseCurrency = (data.currency || '').replace(/\.private$/, '').replace(/u8$/, '').trim();
+              const currencyLabel = purchaseCurrency === '1' ? 'USDCx' : purchaseCurrency === '2' ? 'USAD' : 'ALEO';
+              return (
+                <div key={idx} className="rounded-xl border border-blue-500/20 bg-blue-500/[0.04] p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-blue-400/70">Purchase Receipt</span>
+                    <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium text-blue-400">Awaiting Delivery</span>
+                  </div>
+                  {tagHash && (
+                    <p className="font-mono text-xs text-white/40 truncate">Tag: {tagHash.slice(0,12)}...</p>
+                  )}
+                  {purchaseAmount && (
+                    <p className="font-mono text-xs text-white/40">Amount: {(parseInt(purchaseAmount) / 1_000_000).toFixed(2)} {currencyLabel}</p>
+                  )}
+                  {saleIdField && (
+                    <p className="font-mono text-xs text-blue-400/50 truncate">Sale: {saleIdField.slice(0,12)}...</p>
+                  )}
+                  <button
+                    onClick={() => handleRefundPurchase(idx)}
+                    disabled={refundingIdx === idx}
+                    className="w-full rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+                  >
+                    {refundingIdx === idx ? 'Refunding...' : 'Request Refund (after ~1000 blocks)'}
                   </button>
                 </div>
               );
@@ -1109,6 +1213,16 @@ export const Vault: FC = () => {
                   }`}
                 >
                   USDCx
+                </button>
+                <button
+                  onClick={() => setListingCurrency('usad')}
+                  className={`flex-1 text-xs font-medium transition-all ${
+                    listingCurrency === 'usad'
+                      ? 'bg-champagne-500/20 text-champagne-300'
+                      : 'bg-white/[0.02] text-white/40 hover:bg-white/5'
+                  }`}
+                >
+                  USAD
                 </button>
               </div>
             </div>

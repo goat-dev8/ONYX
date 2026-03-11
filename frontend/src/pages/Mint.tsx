@@ -50,7 +50,7 @@ export const Mint: FC = () => {
         // Already authenticated but not marked as brand — check backend
         checkExistingBrand();
       } else if (isBrand && walletAddress) {
-        // Brand exists in backend — verify on-chain registration on v5
+        // Brand exists in backend — verify on-chain registration on v6
         checkOnChainBrandStatus();
       }
     }
@@ -90,10 +90,10 @@ export const Mint: FC = () => {
   const handleReRegisterOnChain = async () => {
     setReRegistering(true);
     try {
-      toast.loading('Re-registering brand on v5 contract...', { id: 'brand-reregister' });
+      toast.loading('Re-registering brand on v6 contract...', { id: 'brand-reregister' });
       await executeRegisterBrand();
       toast.dismiss('brand-reregister');
-      toast.success('Brand re-registered on v5! You can now mint.');
+      toast.success('Brand re-registered on v6! You can now mint.');
       setNeedsOnChainReRegister(false);
     } catch (err) {
       toast.dismiss('brand-reregister');
@@ -337,7 +337,7 @@ export const Mint: FC = () => {
       {/* Pending transaction banners */}
       <PendingTxBanner types={['mint', 'register_brand']} />
 
-      {/* On-chain re-registration needed (brand was on v4, now on v5) */}
+      {/* On-chain re-registration needed (brand was on older contract, now on v6) */}
       {needsOnChainReRegister && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -348,7 +348,7 @@ export const Mint: FC = () => {
             On-Chain Re-Registration Required
           </h3>
           <p className="mt-1 text-xs text-white/50">
-            Your brand is registered in the backend but not yet on the new v5 contract.
+            Your brand is registered in the backend but not yet on the new v6 contract.
             Please re-register to enable minting.
           </p>
           <Button
@@ -357,7 +357,7 @@ export const Mint: FC = () => {
             size="sm"
             className="mt-3"
           >
-            Re-Register Brand on v5
+            Re-Register Brand on v6
           </Button>
         </motion.div>
       )}

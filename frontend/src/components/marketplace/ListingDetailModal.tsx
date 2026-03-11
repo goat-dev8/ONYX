@@ -37,10 +37,8 @@ export const ListingDetailModal: FC<ListingDetailModalProps> = ({
     verifiedAt: string;
   } | null>(null);
 
-  const priceDisplay =
-    listing.currency === 'aleo'
-      ? `${(listing.price / 1_000_000).toFixed(listing.price % 1_000_000 === 0 ? 0 : 2)} ALEO`
-      : `${(listing.price / 1_000_000).toFixed(listing.price % 1_000_000 === 0 ? 0 : 2)} USDCx`;
+  const currencyLabel = listing.currency === 'aleo' ? 'ALEO' : listing.currency === 'usad' ? 'USAD' : 'USDCx';
+  const priceDisplay = `${(listing.price / 1_000_000).toFixed(listing.price % 1_000_000 === 0 ? 0 : 2)} ${currencyLabel}`;
 
   const handleVerify = async () => {
     setVerifying(true);

@@ -13,18 +13,20 @@ export type PendingTxType =
   | 'transfer'
   | 'report_stolen'
   | 'prove_for_resale'
-  | 'create_escrow'
-  | 'release_escrow'
-  | 'refund_escrow'
   | 'pay_usdcx'
+  | 'pay_usad'
   | 'register_brand'
   | 'create_sale'
   | 'buy_sale_escrow'
   | 'buy_sale_usdcx'
+  | 'buy_sale_usad'
   | 'complete_sale_escrow'
   | 'complete_sale_usdcx'
+  | 'complete_sale_usad'
   | 'cancel_sale'
-  | 'refund_sale';
+  | 'refund_sale_escrow'
+  | 'refund_sale_usdcx'
+  | 'refund_sale_usad';
 
 export interface PendingTx {
   id: string;           // txId from wallet
