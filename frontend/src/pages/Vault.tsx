@@ -2,6 +2,7 @@ import { FC, useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import { useWalletModal } from '@provablehq/aleo-wallet-adaptor-react-ui';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   VaultIcon,
@@ -711,6 +712,25 @@ export const Vault: FC = () => {
         onConfirmed={handleChildRefresh}
       />
 
+      {/* ── STOLEN ALERT BANNER ── */}
+      {artifacts.some(a => a.stolen) && (
+        <Link
+          to="/stolen"
+          className="flex items-center gap-3 rounded-xl border border-red-500/20 bg-red-500/[0.06] p-4 transition-colors hover:bg-red-500/[0.1]"
+        >
+          <StolenAlertIcon size={20} className="shrink-0 text-red-400" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-red-400">
+              {artifacts.filter(a => a.stolen).length} stolen item{artifacts.filter(a => a.stolen).length !== 1 ? 's' : ''} reported
+            </p>
+            <p className="text-xs text-white/40">Manage stolen reports, set bounties, or authorize bounty payouts</p>
+          </div>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-400/50">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </Link>
+      )}
+
       {/* ── AUTHENTICATED ITEMS ── */}
       <section>
         <div className="mb-4 flex items-center gap-3">
@@ -803,6 +823,16 @@ export const Vault: FC = () => {
                     </div>
 
                     <div className="flex gap-2">
+                      {artifact.stolen ? (
+                        <Link
+                          to="/stolen"
+                          className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20"
+                        >
+                          <StolenAlertIcon size={16} />
+                          Manage Stolen Report
+                        </Link>
+                      ) : (
+                        <>
                       <button
                         onClick={() => {
                           setSelectedArtifact(artifact);
@@ -849,6 +879,8 @@ export const Vault: FC = () => {
                       >
                         <MarketplaceIcon size={18} className="mx-auto" />
                       </button>
+                        </>
+                      )}
                     </div>
                   </Card>
                 </motion.div>
