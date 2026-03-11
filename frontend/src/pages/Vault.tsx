@@ -27,7 +27,7 @@ import type { Artifact } from '../lib/types';
 export const Vault: FC = () => {
   const wallet = useWallet();
   const { setVisible: openWalletModal } = useWalletModal();
-  const { authenticate, executeTransfer, executeReportStolen, executeProveForResale, executeCreateSale, executeCancelSale, executeRefundSaleEscrow, fetchRecords, loading } = useOnyxWallet();
+  const { authenticate, executeTransfer, executeReportStolen, executeReportStolenWithBounty, executeProveForResale, executeCreateSale, executeCancelSale, executeRefundSaleEscrow, fetchRecords, loading } = useOnyxWallet();
   const { isAuthenticated, artifacts, setArtifacts } = useUserStore();
   const { addPendingTx, hasPendingOfType, getPendingByType } = usePendingTxStore();
   
@@ -46,6 +46,7 @@ export const Vault: FC = () => {
   const [proofModal, setProofModal] = useState(false);
   
   const [transferAddress, setTransferAddress] = useState('');
+  const [stolenBounty, setStolenBounty] = useState('');
   const [proofSalt, setProofSalt] = useState('');
   const [generatedProof, setGeneratedProof] = useState<string | null>(null);
 
@@ -308,7 +309,12 @@ export const Vault: FC = () => {
   const handleReportStolen = async () => {
     if (!selectedArtifact) return;
 
-    const txId = await executeReportStolen(selectedArtifact);
+    const bountyAleo = stolenBounty ? parseFloat(stolenBounty) : 0;
+    const bountyValue = Math.round(bountyAleo * 1_000_000);
+
+    const txId = bountyValue > 0
+      ? await executeReportStolenWithBounty(selectedArtifact, bountyValue)
+      : await executeReportStolen(selectedArtifact);
     if (txId) {
       addPendingTx({
         id: txId,
@@ -318,6 +324,7 @@ export const Vault: FC = () => {
       // On-chain report succeeded!
       toast.success('Stolen report submitted! Waiting for confirmation...');
       setStolenModal(false);
+      setStolenBounty('');
       
       // CRITICAL: Save to localStorage FIRST for persistence
       // This ensures stolen status survives even if backend resets
@@ -1066,7 +1073,7 @@ export const Vault: FC = () => {
 
       <Modal
         isOpen={stolenModal}
-        onClose={() => setStolenModal(false)}
+        onClose={() => { setStolenModal(false); setStolenBounty(''); }}
         title="Report Stolen"
       >
         <div className="space-y-4">
@@ -1076,10 +1083,22 @@ export const Vault: FC = () => {
               Anyone scanning it will see the stolen status.
             </p>
           </div>
+          <div>
+            <Input
+              label="Recovery Bounty (optional, ALEO credits)"
+              placeholder="e.g. 5 — incentivize finder to return your item"
+              value={stolenBounty}
+              onChange={setStolenBounty}
+              type="number"
+            />
+            <p className="mt-1.5 text-xs text-white/30">
+              Deposit ALEO credits as a recovery bounty. When the item is found, you can pay the finder directly from your Vault.
+            </p>
+          </div>
           <div className="flex gap-3">
             <Button
               variant="secondary"
-              onClick={() => setStolenModal(false)}
+              onClick={() => { setStolenModal(false); setStolenBounty(''); }}
               className="flex-1"
             >
               Cancel
@@ -1090,7 +1109,7 @@ export const Vault: FC = () => {
               loading={loading}
               className="flex-1"
             >
-              Report Stolen
+              {stolenBounty && parseFloat(stolenBounty) > 0 ? `Report + ${stolenBounty} ALEO Bounty` : 'Report Stolen'}
             </Button>
           </div>
         </div>

@@ -284,18 +284,20 @@ export const Stolen: FC = () => {
     );
   }
 
+  const stolenItems = walletArtifacts.filter((a) => a.stolen);
+  const reportableItems = walletArtifacts.filter((a) => !a.stolen);
+
   return (
-    <div className="mx-auto max-w-2xl py-8">
+    <div className="mx-auto max-w-2xl space-y-6 py-8">
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="mb-8"
       >
         <h1 className="mb-2 font-heading text-4xl font-bold text-red-400">
-          Report Stolen
+          Stolen Items
         </h1>
         <p className="text-white/50">
-          Mark an item as stolen to alert future scanners
+          Manage stolen reports, bounties, and item recovery
         </p>
       </motion.div>
 
@@ -304,177 +306,188 @@ export const Stolen: FC = () => {
           <LoadingSpinner size={48} className="text-red-400" />
         </div>
       ) : (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-          <Card className="border-red-500/20">
-            <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4">
-              <div className="flex items-start gap-3">
-                <StolenAlertIcon size={24} className="shrink-0 text-red-400" />
-                <div>
-                  <p className="font-semibold text-red-400">Warning</p>
-                  <p className="text-sm text-red-400/70">
-                    Reporting an item as stolen is permanent and cannot be undone.
-                    The item will be blacklisted on the blockchain.
-                  </p>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+
+          {/* ── STOLEN ITEMS (primary section) ── */}
+          {stolenItems.length > 0 && (
+            <Card className="border-red-500/20">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="rounded-lg bg-red-500/15 p-1.5">
+                  <StolenAlertIcon size={18} className="text-red-400" />
                 </div>
+                <h2 className="font-heading text-lg font-semibold text-red-400/80">
+                  Reported Stolen
+                </h2>
+                <span className="rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-medium text-red-400/60">
+                  {stolenItems.length}
+                </span>
               </div>
-            </div>
-
-            <div className="mb-6">
-              <label className="mb-2 block text-sm font-medium text-white/60">
-                Select Item to Report
-              </label>
-              {walletArtifacts.filter((a) => !a.stolen).length === 0 ? (
-                <div className="rounded-lg border border-white/10 bg-white/5 p-6 text-center">
-                  <DiamondIcon size={32} className="mx-auto mb-2 text-white/30" />
-                  <p className="text-sm text-white/40">
-                    No items available to report
-                  </p>
-                  <p className="mt-1 text-xs text-white/30">
-                    Items are loaded directly from your wallet. Make sure you have AssetArtifact records.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {walletArtifacts
-                    .filter((a) => !a.stolen)
-                    .map((artifact) => (
-                      <button
-                        key={artifact.tagHash}
-                        onClick={() => setSelectedArtifact(artifact)}
-                        className={`flex w-full items-center gap-4 rounded-lg border p-4 text-left transition-all ${
-                          selectedArtifact?.tagHash === artifact.tagHash
-                            ? 'border-red-500/50 bg-red-500/10'
-                            : 'border-white/10 bg-white/5 hover:border-white/20'
-                        }`}
-                      >
-                        <div
-                          className={`rounded-lg p-2 ${
-                            selectedArtifact?.tagHash === artifact.tagHash
-                              ? 'bg-red-500/20 text-red-400'
-                              : 'bg-white/10 text-white/60'
-                          }`}
-                        >
-                          <DiamondIcon size={20} />
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-heading font-semibold text-white">
-                            Model #{artifact.modelId || '?'}
-                          </p>
-                          <p className="font-mono text-xs text-white/40">
-                            {formatAddress(artifact.tagHash, 8)}
-                          </p>
-                        </div>
-                        <StatusBadge status="authentic" />
-                      </button>
-                    ))}
-                </div>
-              )}
-            </div>
-
-            <Button
-              variant="danger"
-              onClick={() => setConfirmModal(true)}
-              disabled={!selectedArtifact}
-              size="lg"
-              className="w-full"
-            >
-              Report as Stolen
-            </Button>
-          </Card>
-
-          {walletArtifacts.filter((a) => a.stolen).length > 0 && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="mt-6"
-            >
-              <Card className="border-red-500/10 bg-onyx-900/50">
-                <h3 className="mb-3 font-heading text-sm font-semibold text-red-400/70">
-                  Previously Reported Stolen
-                </h3>
-                <div className="space-y-2">
-                  {walletArtifacts
-                    .filter((a) => a.stolen)
-                    .map((artifact) => (
-                      <div
-                        key={artifact.tagHash}
-                        className="flex items-center gap-3 rounded-lg border border-red-500/10 bg-red-500/5 p-3"
-                      >
-                        <DiamondIcon size={16} className="text-red-400/50" />
-                        <div className="flex-1">
-                          <p className="text-sm text-white/50">
-                            Model #{artifact.modelId || '?'}
-                          </p>
-                          <p className="font-mono text-xs text-white/30">
-                            {formatAddress(artifact.tagHash, 8)}
-                          </p>
-                        </div>
-                        <StatusBadge status="stolen" />
+              <div className="space-y-3">
+                {stolenItems.map((artifact) => (
+                  <div
+                    key={artifact.tagHash}
+                    className="rounded-xl border border-red-500/15 bg-red-500/[0.04] p-4"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="rounded-lg bg-red-500/15 p-2">
+                        <DiamondIcon size={20} className="text-red-400" />
                       </div>
-                    ))}
-                </div>
-              </Card>
-            </motion.div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-heading font-semibold text-white">
+                          Model #{artifact.modelId || '?'}
+                        </p>
+                        <p className="font-mono text-xs text-white/30 truncate">
+                          {artifact.tagHash}
+                        </p>
+                      </div>
+                      <StatusBadge status="stolen" />
+                    </div>
+                    <div className="mt-3 rounded-lg border border-red-500/10 bg-red-500/[0.03] px-3 py-2">
+                      <p className="text-xs text-red-400/60">
+                        Permanently blacklisted on-chain. Anyone scanning this item will be alerted.
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
           )}
 
-          {/* Claim Bounty Section — shows when user has BountyPledge records */}
-          {bountyPledges.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.3 }}
-              className="mt-6"
-            >
-              <Card className="border-gold/10 bg-onyx-900/50">
-                <h3 className="mb-3 font-heading text-sm font-semibold text-gold">
-                  Claim Bounty
-                </h3>
-                <p className="mb-4 text-xs text-white/40">
-                  You have active bounty pledges. If someone found your stolen item, authorize bounty payout to their address.
-                </p>
-                <div className="space-y-3">
+          {/* ── BOUNTY MANAGEMENT ── */}
+          {stolenItems.length > 0 && (
+            <Card className="border-amber-500/15">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="rounded-lg bg-amber-500/15 p-1.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M16 8h-6a2 2 0 100 4h4a2 2 0 010 4H8" />
+                    <path d="M12 18V6" />
+                  </svg>
+                </div>
+                <h2 className="font-heading text-lg font-semibold text-amber-400/80">
+                  Recovery Bounty
+                </h2>
+              </div>
+
+              {bountyPledges.length > 0 ? (
+                <div className="space-y-4">
+                  <p className="text-xs text-white/40">
+                    You have active bounty pledges. Enter the finder&apos;s address to authorize payout.
+                  </p>
                   <Input
-                    label="Claimer Address"
+                    label="Finder's Aleo Address"
                     placeholder="aleo1..."
                     value={claimAddress}
                     onChange={setClaimAddress}
                   />
                   {bountyPledges.map((pledge) => (
-                      <div
-                        key={`claim-${pledge.tagHash}`}
-                        className="flex items-center gap-3 rounded-lg border border-gold/10 bg-gold/5 p-3"
-                      >
-                        <DiamondIcon size={16} className="text-gold/50" />
-                        <div className="flex-1">
-                          <p className="text-sm text-white/50">
-                            Tag: {formatAddress(pledge.tagHash, 8)}
+                    <div
+                      key={`claim-${pledge.tagHash}`}
+                      className="flex items-center gap-3 rounded-xl border border-amber-500/15 bg-amber-500/[0.04] p-4"
+                    >
+                      <DiamondIcon size={16} className="text-amber-400/60" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white/60 truncate">
+                          Tag: {formatAddress(pledge.tagHash, 8)}
+                        </p>
+                        {pledge._bountyAmount && (
+                          <p className="text-xs font-medium text-amber-400">
+                            {(parseInt(pledge._bountyAmount) / 1_000_000).toFixed(2)} ALEO bounty
                           </p>
-                          {pledge._bountyAmount && (
-                            <p className="text-xs text-gold/50">
-                              Bounty: {(parseInt(pledge._bountyAmount) / 1_000_000).toFixed(2)} ALEO
-                            </p>
-                          )}
-                        </div>
-                        <Button
-                          size="sm"
-                          onClick={() => handleClaimBounty(pledge)}
-                          loading={loading}
-                          disabled={!claimAddress}
-                        >
-                          Pay Bounty
-                        </Button>
+                        )}
                       </div>
-                    ))}
-                  {claimTxId && (
-                    <div className="mt-2">
-                      <TransactionIdDisplay txId={claimTxId} />
+                      <Button
+                        size="sm"
+                        onClick={() => handleClaimBounty(pledge)}
+                        loading={loading}
+                        disabled={!claimAddress || !claimAddress.startsWith('aleo1')}
+                      >
+                        Pay Bounty
+                      </Button>
                     </div>
+                  ))}
+                  {claimTxId && (
+                    <TransactionIdDisplay txId={claimTxId} />
                   )}
                 </div>
-              </Card>
-            </motion.div>
+              ) : (
+                <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5 text-center space-y-2">
+                  <p className="text-sm text-white/40">No bounty pledges found</p>
+                  <p className="text-xs text-white/25 max-w-sm mx-auto">
+                    You reported this item without a recovery bounty. To add a bounty,
+                    report a new item from your Vault and enter a bounty amount during the report.
+                  </p>
+                </div>
+              )}
+            </Card>
           )}
+
+          {/* ── REPORT NEW ITEM ── */}
+          {reportableItems.length > 0 ? (
+            <Card className="border-red-500/20">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="rounded-lg bg-red-500/15 p-1.5">
+                  <StolenAlertIcon size={18} className="text-red-400" />
+                </div>
+                <h2 className="font-heading text-lg font-semibold text-red-400/80">
+                  Report an Item
+                </h2>
+              </div>
+              <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/[0.06] p-3">
+                <p className="text-xs text-red-400/70">
+                  Reporting is permanent. The item will be blacklisted on the blockchain.
+                </p>
+              </div>
+              <div className="space-y-2 mb-4">
+                {reportableItems.map((artifact) => (
+                  <button
+                    key={artifact.tagHash}
+                    onClick={() => setSelectedArtifact(artifact)}
+                    className={`flex w-full items-center gap-4 rounded-lg border p-4 text-left transition-all ${
+                      selectedArtifact?.tagHash === artifact.tagHash
+                        ? 'border-red-500/50 bg-red-500/10'
+                        : 'border-white/10 bg-white/5 hover:border-white/20'
+                    }`}
+                  >
+                    <div className={`rounded-lg p-2 ${
+                      selectedArtifact?.tagHash === artifact.tagHash
+                        ? 'bg-red-500/20 text-red-400'
+                        : 'bg-white/10 text-white/60'
+                    }`}>
+                      <DiamondIcon size={20} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-heading font-semibold text-white">
+                        Model #{artifact.modelId || '?'}
+                      </p>
+                      <p className="font-mono text-xs text-white/40">
+                        {formatAddress(artifact.tagHash, 8)}
+                      </p>
+                    </div>
+                    <StatusBadge status="authentic" />
+                  </button>
+                ))}
+              </div>
+              <Button
+                variant="danger"
+                onClick={() => setConfirmModal(true)}
+                disabled={!selectedArtifact}
+                size="lg"
+                className="w-full"
+              >
+                Report as Stolen
+              </Button>
+            </Card>
+          ) : stolenItems.length === 0 ? (
+            <Card className="border-white/10 text-center py-8">
+              <DiamondIcon size={32} className="mx-auto mb-3 text-white/20" />
+              <p className="text-sm text-white/40">No items in your wallet</p>
+              <p className="mt-1 text-xs text-white/25">
+                Mint or receive items first, then you can manage stolen reports here.
+              </p>
+            </Card>
+          ) : null}
+
         </motion.div>
       )}
 
