@@ -302,6 +302,15 @@ export const api = {
     return handleResponse<{ success: boolean; updated: boolean }>(response);
   },
 
+  async updateCreateTx(data: { listingId: string; createSaleTxId: string }) {
+    const response = await fetch(`${API_BASE_URL}/sales/update-create-tx`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ success: boolean; updated: boolean }>(response);
+  },
+
   async refundSale(data: { saleId: string; refundTxId: string }) {
     const response = await fetch(`${API_BASE_URL}/sales/refund`, {
       method: 'POST',

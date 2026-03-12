@@ -63,7 +63,7 @@ export const Purchase: FC = () => {
                 setOnChainSaleId(saleLookup.sale.onChainSaleId);
               }
             }
-            // Verify the sale is active on-chain via backend (server-side BHP256 is reliable)
+            // Verify the sale is active on-chain via backend (multi-strategy check)
             try {
               const onChainCheck = await api.checkSaleOnChain(listingId);
               if (onChainCheck.active) {
@@ -117,7 +117,7 @@ export const Purchase: FC = () => {
     const doCheck = async () => {
       if (cancelled) return;
       try {
-        // Ask backend to verify on-chain state (server-side BHP256 is reliable)
+        // Ask backend to verify on-chain state (multi-strategy check)
         const onChainCheck = await api.checkSaleOnChain(listingId);
         if (onChainCheck.active) {
           setSaleConfirmedOnChain(true);

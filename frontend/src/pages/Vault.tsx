@@ -294,6 +294,53 @@ export const Vault: FC = () => {
     return () => clearInterval(fastInterval);
   }, [hasPendingCreateSale, isAuthenticated, walletAddress, loadArtifacts]);
 
+  // Poll wallet adapter's transactionStatus for pending create_sale txs.
+  // Shield wallet returns shield_... IDs; once confirmed, the adapter
+  // provides the real at1... txId which we send to the backend.
+  useEffect(() => {
+    if (!hasPendingCreateSale || !isAuthenticated || !walletAddress) return;
+
+    const txStatusFn = (wallet as unknown as { transactionStatus?: (txId: string) => Promise<unknown> }).transactionStatus;
+    if (!txStatusFn) return;
+
+    const checkTxStatus = async () => {
+      const pending = pendingTxList.filter(t => t.type === 'create_sale' && t.status === 'pending');
+      for (const tx of pending) {
+        try {
+          const result = await txStatusFn(tx.id);
+          const status = typeof result === 'string'
+            ? result
+            : (result as Record<string, unknown>)?.status;
+          const realTxId = typeof result === 'object' && result !== null
+            ? ((result as Record<string, unknown>).transactionId || (result as Record<string, unknown>).id) as string | undefined
+            : undefined;
+
+          if (status === 'accepted' || status === 'Finalized' || status === 'Settled') {
+            usePendingTxStore.getState().confirmTx(tx.id);
+            // Send the real at1... txId to the backend so buyers can verify
+            if (realTxId && typeof realTxId === 'string' && realTxId.startsWith('at1')) {
+              const lid = tx.meta?.listingId as string | undefined;
+              if (lid) {
+                try {
+                  await api.updateCreateTx({ listingId: lid, createSaleTxId: realTxId });
+                  console.log('[Vault] Updated create_sale txId to', realTxId.slice(0, 20));
+                } catch (err) {
+                  console.warn('[Vault] Failed to update create_sale txId:', err);
+                }
+              }
+            }
+          } else if (status === 'Failed' || status === 'rejected') {
+            usePendingTxStore.getState().failTx(tx.id);
+          }
+        } catch { /* retry on next interval */ }
+      }
+    };
+
+    checkTxStatus();
+    const interval = setInterval(checkTxStatus, 8_000);
+    return () => clearInterval(interval);
+  }, [hasPendingCreateSale, isAuthenticated, walletAddress, pendingTxList, wallet]);
+
   const handleTransfer = async () => {
     if (!selectedArtifact || !transferAddress) return;
 
@@ -544,7 +591,7 @@ export const Vault: FC = () => {
           addPendingTx({
             id: saleResult.txId,
             type: 'create_sale',
-            meta: { saleId: saleResult.saleId, title: listingTitle },
+            meta: { saleId: saleResult.saleId, title: listingTitle, listingId: listingResult.id },
           });
         }
       } catch (err) {
