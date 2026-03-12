@@ -7,7 +7,6 @@ import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
 import { usePendingTxStore } from '../stores/pendingTxStore';
 import { api } from '../lib/api';
-import { ALEO_CONFIG } from '../lib/aleo';
 import type { Listing } from '../lib/types';
 
 type PurchaseStep = 'preview' | 'paying' | 'paid' | 'completed' | 'error';
@@ -33,7 +32,6 @@ export const Purchase: FC = () => {
   const [noSale, setNoSale] = useState(false);
   const [salePending, setSalePending] = useState(false);
   const [saleConfirmedOnChain, setSaleConfirmedOnChain] = useState(false);
-  const [createSaleTxId, setCreateSaleTxId] = useState<string | null>(null);
   const [txId, setTxId] = useState<string | null>(null);
   const [onChainTxId, setOnChainTxId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,31 +63,24 @@ export const Purchase: FC = () => {
                 setOnChainSaleId(saleLookup.sale.onChainSaleId);
               }
             }
-            // Track create_sale tx for confirmation check
-            if (saleLookup.sale.createSaleTxId) {
-              setCreateSaleTxId(saleLookup.sale.createSaleTxId);
-              // Verify create_sale tx is confirmed and finalized on-chain
-              try {
-                const txRes = await fetch(`${ALEO_CONFIG.provableApiBase}/transaction/${saleLookup.sale.createSaleTxId}`);
-                if (txRes.ok) {
-                  const txData = await txRes.json();
-                  if (txData.type === 'execute') {
-                    setSaleConfirmedOnChain(true);
-                    setSalePending(false);
-                  } else {
-                    // Finalize reverted — sale not active
-                    setSalePending(true);
-                  }
-                } else {
-                  // Tx not yet indexed — still confirming
-                  setSalePending(true);
-                }
-              } catch {
+            // Verify the sale is active on-chain via backend (server-side BHP256 is reliable)
+            try {
+              const onChainCheck = await api.checkSaleOnChain(listingId);
+              if (onChainCheck.active) {
+                setSaleConfirmedOnChain(true);
+                setSalePending(false);
+                if (onChainCheck.onChainSaleId) setOnChainSaleId(onChainCheck.onChainSaleId);
+              } else {
                 setSalePending(true);
               }
-            } else if (!saleLookup.sale.onChainSaleId?.startsWith('pending_')) {
-              // Old sale without createSaleTxId — assume active
-              setSaleConfirmedOnChain(true);
+            } catch {
+              // If backend check fails, fall back to pending state
+              if (!saleLookup.sale.onChainSaleId?.startsWith('pending_')) {
+                // Has a real sale ID but can't verify — let them try
+                setSaleConfirmedOnChain(true);
+              } else {
+                setSalePending(true);
+              }
             }
           } else {
             setNoSale(true);
@@ -126,37 +117,27 @@ export const Purchase: FC = () => {
     const doCheck = async () => {
       if (cancelled) return;
       try {
-        // If we don't have the onChainSaleId yet, re-fetch from backend
-        if (!onChainSaleId || !createSaleTxId) {
-          const saleLookup = await api.getSaleByListing(listingId);
-          if (saleLookup.found && saleLookup.sale) {
-            if (saleLookup.sale.onChainSaleId && !saleLookup.sale.onChainSaleId.startsWith('pending_')) {
-              setOnChainSaleId(saleLookup.sale.onChainSaleId);
+        // Ask backend to verify on-chain state (server-side BHP256 is reliable)
+        const onChainCheck = await api.checkSaleOnChain(listingId);
+        if (onChainCheck.active) {
+          setSaleConfirmedOnChain(true);
+          setSalePending(false);
+          if (onChainCheck.onChainSaleId) setOnChainSaleId(onChainCheck.onChainSaleId);
+          // Also refresh seller address if needed
+          if (!sellerAddress) {
+            const saleLookup = await api.getSaleByListing(listingId);
+            if (saleLookup.found && saleLookup.sale?.sellerAddress) {
+              setSellerAddress(saleLookup.sale.sellerAddress);
             }
-            if (saleLookup.sale.sellerAddress) setSellerAddress(saleLookup.sale.sellerAddress);
-            if (saleLookup.sale.createSaleTxId) setCreateSaleTxId(saleLookup.sale.createSaleTxId);
           }
-        }
-        // Check if the create_sale transaction is confirmed on-chain
-        const txIdToCheck = createSaleTxId;
-        if (txIdToCheck) {
-          const txRes = await fetch(`${ALEO_CONFIG.provableApiBase}/transaction/${txIdToCheck}`);
-          if (txRes.ok) {
-            const txData = await txRes.json();
-            if (txData.type === 'execute') {
-              setSaleConfirmedOnChain(true);
-              setSalePending(false);
-              toast.success('Sale confirmed on-chain — you can now purchase!');
-            }
-            // type === 'fee' means finalize failed — keep waiting or show error
-          }
+          toast.success('Sale confirmed on-chain — you can now purchase!');
         }
       } catch { /* retry silently */ }
     };
     doCheck();
     const interval = setInterval(doCheck, 5000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [salePending, listingId, onChainSaleId, createSaleTxId]);
+  }, [salePending, listingId, sellerAddress]);
 
   // Resolve real on-chain txId from pending TX store (Shield wallet returns shield_... IDs)
   useEffect(() => {

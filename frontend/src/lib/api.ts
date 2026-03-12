@@ -335,4 +335,9 @@ export const api = {
     const response = await fetch(`${API_BASE_URL}/sales/by-listing/${encodeURIComponent(listingId)}`);
     return handleResponse<{ found: boolean; sale: { saleId: string; onChainSaleId: string; listingId: string; sellerAddress: string; price: number; currency: 'aleo' | 'usdcx'; status: string; createSaleTxId?: string; createdAt: string } | null }>(response);
   },
+
+  async checkSaleOnChain(listingId: string) {
+    const response = await fetch(`${API_BASE_URL}/sales/check-on-chain/${encodeURIComponent(listingId)}`);
+    return handleResponse<{ active: boolean; onChainSaleId?: string; reason?: string }>(response);
+  },
 };

@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import crypto from 'crypto';
 import { DatabaseService } from '../services/db';
 import { getMappingValue } from '../services/provableApi';
-import { computeSaleId } from '../services/bhp256';
+import { computeBHP256, computeSaleId } from '../services/bhp256';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import {
   createSaleSchema,
@@ -572,6 +572,57 @@ router.patch('/update-onchain-id', authMiddleware, async (req: AuthRequest, res:
     res.json({ success: true, updated: true });
   } catch (err) {
     console.error('[Sales] Update onchain-id error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================================
+// GET /sales/check-on-chain/:listingId — Verify sale is active on-chain
+// Uses server-side BHP256 (correct hashes) + provable API mapping lookup
+// ============================================================
+router.get('/check-on-chain/:listingId', async (req, res): Promise<void> => {
+  try {
+    const { listingId } = req.params;
+    const sale = db.getSaleByListingId(listingId);
+
+    if (!sale || ['cancelled', 'refunded'].includes(sale.status)) {
+      res.json({ active: false, reason: 'no_sale' });
+      return;
+    }
+
+    // Need a real onChainSaleId (not pending_)
+    let saleIdToCheck = sale.onChainSaleId;
+    if (saleIdToCheck.startsWith('pending_') && sale.saleSalt && sale.sellerAddress) {
+      try {
+        const resolved = await computeSaleId(sale.tagHash, sale.saleSalt, sale.sellerAddress);
+        if (resolved) {
+          saleIdToCheck = resolved.replace(/field$/, '');
+          sale.onChainSaleId = saleIdToCheck;
+          sale.updatedAt = new Date().toISOString();
+          db.setSale(sale);
+        }
+      } catch { /* continue with pending */ }
+    }
+
+    if (saleIdToCheck.startsWith('pending_')) {
+      res.json({ active: false, reason: 'pending_id' });
+      return;
+    }
+
+    // Compute sale_commitment = BHP256(sale_id) and query sale_active mapping
+    const saleIdField = saleIdToCheck.endsWith('field') ? saleIdToCheck : `${saleIdToCheck}field`;
+    const saleCommitment = await computeBHP256(saleIdField);
+    if (!saleCommitment) {
+      res.json({ active: false, reason: 'hash_failed' });
+      return;
+    }
+
+    const activeVal = await getMappingValue(PROGRAM_ID, 'sale_active', saleCommitment);
+    const isActive = activeVal !== null && String(activeVal).includes('true');
+
+    res.json({ active: isActive, onChainSaleId: saleIdToCheck });
+  } catch (err) {
+    console.error('[Sales] Check on-chain error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
