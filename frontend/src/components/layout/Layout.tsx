@@ -162,7 +162,8 @@ export const Layout: FC<LayoutProps> = ({ children }) => {
 
       <footer className="border-t border-white/5 py-8">
         <div className="mx-auto max-w-6xl px-4 text-center text-sm text-white/40">
-          <p>Powered by Aleo • Zero-Knowledge Privacy</p>
+          <p className="mb-1">ONYX &bull; Private Product Passports on Aleo</p>
+          <p className="text-xs text-white/25">Zero-Knowledge Authentication &bull; BHP256 Commitments &bull; Shield Wallet &bull; credits.aleo &bull; USDCx &bull; USAD</p>
         </div>
       </footer>
     </div>

@@ -330,7 +330,8 @@ export const Mint: FC = () => {
           Mint Product Passport
         </h1>
         <p className="text-white/50">
-          Create an on-chain certificate of authenticity for your product
+          Register your brand and mint encrypted AssetArtifact records for each product.
+          Each passport is sealed with BHP256 commitments — permanently verifiable, privately owned.
         </p>
       </motion.div>
 

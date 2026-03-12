@@ -235,7 +235,8 @@ export const Transfer: FC = () => {
           Transfer Ownership
         </h1>
         <p className="text-white/50">
-          Securely transfer item ownership to a new wallet
+          Transfer item ownership with zero on-chain trace. No mapping writes,
+          no public state changes — only sender and receiver know it happened.
         </p>
       </motion.div>
 

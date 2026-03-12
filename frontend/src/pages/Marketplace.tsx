@@ -122,8 +122,8 @@ export const Marketplace: FC = () => {
         </div>
         <p className="mx-auto max-w-xl text-sm leading-relaxed text-white/40">
           Browse authenticated luxury goods with zero-knowledge privacy.
-          Every item is verifiable on the Aleo blockchain without revealing
-          the owner&apos;s identity.
+          Every item is verified on-chain via BHP256 commitments — proving authenticity
+          without exposing the owner, price history, or transaction details.
         </p>
       </motion.div>
 

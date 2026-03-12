@@ -480,7 +480,10 @@ export const Prove: FC = () => {
         <h1 className="mb-2 font-heading text-4xl font-bold gold-gradient-text">
           Resale Proof
         </h1>
-        <p className="text-white/50">Generate or verify ownership proofs</p>
+        <p className="text-white/50">
+          Generate cryptographic ProofTokens for a specific verifier — proving you own an item
+          without revealing your address, purchase history, or any other assets.
+        </p>
       </motion.div>
 
       {renderModeToggle()}

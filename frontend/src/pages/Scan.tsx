@@ -294,7 +294,8 @@ export const Scan: FC = () => {
           Verify Authenticity
         </h1>
         <p className="text-white/50">
-          Scan a product's QR code to verify its authenticity
+          Scan any QR code or enter a tag hash to instantly verify on-chain.
+          No wallet, no login — zero-knowledge proof checks if the item is authentic or stolen.
         </p>
       </motion.div>
 
