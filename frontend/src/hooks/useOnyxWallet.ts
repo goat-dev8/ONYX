@@ -102,7 +102,9 @@ function constructCreditsPlaintext(rec: Record<string, unknown>): string | null 
   if (!nonce.includes('group')) nonce += 'group.public';
   else if (!nonce.endsWith('.public')) nonce += '.public';
 
-  const pt = `{\n  owner: ${owner},\n  microcredits: ${mcValue}u64.private,\n  _nonce: ${nonce}\n}`;
+  // Post-Aleo upgrade, all records include _version. Without it, the record hash
+  // won't match the on-chain commitment and the transaction will be rejected.
+  const pt = `{\n  owner: ${owner},\n  microcredits: ${mcValue}u64.private,\n  _nonce: ${nonce},\n  _version: 1u8.public\n}`;
   console.log('[OnyxWallet] Constructed credits plaintext:', pt);
   return pt;
 }
@@ -118,11 +120,14 @@ function extractCreditsRecordInput(r: unknown): string | null {
   if (rec.plaintext && typeof rec.plaintext === 'string') return rec.plaintext;
   if (rec._plaintext && typeof rec._plaintext === 'string') return rec._plaintext;
 
-  // 2. Construct plaintext from record fields (Leo Wallet V2 format)
+  // 2. Shield wallet provides recordPlaintext (includes _version field)
+  if (rec.recordPlaintext && typeof rec.recordPlaintext === 'string') return rec.recordPlaintext;
+
+  // 3. Construct plaintext from record fields (Leo Wallet V2 format)
   const constructed = constructCreditsPlaintext(rec);
   if (constructed) return constructed;
 
-  // 3. Do NOT return ciphertext — it causes "Failed to parse input" errors
+  // 4. Do NOT return ciphertext — it causes "Failed to parse input" errors
   console.warn('[OnyxWallet] Cannot extract plaintext from record, keys:', Object.keys(rec));
   return null;
 }
@@ -169,8 +174,25 @@ async function findCreditsRecord(
     return null;
   }
 
+  // Retry once on "No response" errors (Shield wallet intermittently fails when busy)
+  let rawRecords: unknown[] | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      rawRecords = await executor.requestRecords('credits.aleo') as unknown[];
+      break;
+    } catch (retryErr) {
+      const msg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+      if (attempt === 0 && (msg.includes('No response') || msg.includes('timeout'))) {
+        console.warn('[OnyxWallet] Credits fetch attempt 1 failed, retrying:', msg);
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      console.error('[OnyxWallet] Error fetching credits records:', retryErr);
+      return null;
+    }
+  }
+
   try {
-    const rawRecords = await executor.requestRecords('credits.aleo');
     console.log('[OnyxWallet] Credits records returned:', rawRecords?.length, rawRecords);
 
     if (!rawRecords || !Array.isArray(rawRecords) || rawRecords.length === 0) {
