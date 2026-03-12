@@ -106,7 +106,7 @@ export const Vault: FC = () => {
         setPurchaseReceipts(purchaseRecs);
         console.log('[Vault] Filtered to', artifactRecords.length, 'AssetArtifact records from', walletRecords.length, 'total,', saleRecs.length, 'SaleRecords,', purchaseRecs.length, 'PurchaseReceipts');
 
-        // Auto-register: update any backend sales with pending_ onChainSaleId
+        // Auto-register sale records
         if (saleRecs.length > 0 && isAuthenticated) {
           autoRegisterSaleRecords(saleRecs);
         }
@@ -311,24 +311,9 @@ export const Vault: FC = () => {
           const status = typeof result === 'string'
             ? result
             : (result as Record<string, unknown>)?.status;
-          const realTxId = typeof result === 'object' && result !== null
-            ? ((result as Record<string, unknown>).transactionId || (result as Record<string, unknown>).id) as string | undefined
-            : undefined;
 
           if (status === 'accepted' || status === 'Finalized' || status === 'Settled') {
             usePendingTxStore.getState().confirmTx(tx.id);
-            // Send the real at1... txId to the backend so buyers can verify
-            if (realTxId && typeof realTxId === 'string' && realTxId.startsWith('at1')) {
-              const lid = tx.meta?.listingId as string | undefined;
-              if (lid) {
-                try {
-                  await api.updateCreateTx({ listingId: lid, createSaleTxId: realTxId });
-                  console.log('[Vault] Updated create_sale txId to', realTxId.slice(0, 20));
-                } catch (err) {
-                  console.warn('[Vault] Failed to update create_sale txId:', err);
-                }
-              }
-            }
           } else if (status === 'Failed' || status === 'rejected') {
             usePendingTxStore.getState().failTx(tx.id);
           }
@@ -452,45 +437,11 @@ export const Vault: FC = () => {
     }
   };
 
-  // Auto-register SaleRecords: when wallet records load, match them to backend sales
-  // and update any pending_ onChainSaleId with the real on-chain sale_id.
-  const autoRegisterSaleRecords = async (saleRecs: Array<Record<string, unknown>>) => {
-    try {
-      const myListings = await api.getMyListings();
-      if (!myListings.listings || myListings.listings.length === 0) return;
-
-      for (const rec of saleRecs) {
-        const data = (rec.data || {}) as Record<string, string>;
-        const tagHash = (data.tag_hash || '').replace(/\.private$/, '').replace(/field$/, '').trim();
-        const onChainSaleId = (data.sale_id || '').replace(/\.private$/, '').replace(/field$/, '').trim();
-
-        if (!tagHash || !onChainSaleId) continue;
-
-        // Find matching listing by tagHash
-        const matchingListing = myListings.listings.find(
-          (l: { tagHash: string; status: string }) => l.tagHash === tagHash && (l.status === 'active' || l.status === 'reserved')
-        );
-
-        if (!matchingListing) continue;
-
-        // Try to update the backend sale with the real onChainSaleId
-        try {
-          const result = await api.updateSaleOnChainId({
-            listingId: matchingListing.id,
-            onChainSaleId,
-          });
-          if (result.updated) {
-            console.log('[Vault] Auto-registered sale for listing', matchingListing.id, 'onChainSaleId:', onChainSaleId.slice(0, 20));
-            toast.success(`Sale auto-registered for "${matchingListing.title}" — buyers can now purchase!`);
-          }
-        } catch (err) {
-          // Not critical — will retry on next load
-          console.warn('[Vault] Auto-register failed for listing', matchingListing.id, ':', err);
-        }
-      }
-    } catch (err) {
-      console.warn('[Vault] Auto-register scan failed:', err);
-    }
+  // Auto-register SaleRecords: no longer needed in v7
+  // tag_commitment (BHP256(tag_hash)) is used as the mapping key directly.
+  const autoRegisterSaleRecords = async (_saleRecs: Array<Record<string, unknown>>) => {
+    // No-op in v7 — sale records are valid immediately via tag_commitment
+    return;
   };
 
   const handleListForSale = async () => {
@@ -533,25 +484,8 @@ export const Vault: FC = () => {
       });
 
       // 2. Create on-chain sale (atomic purchase)
-      const saleSalt = `${Date.now()}`;
       const currencyCode = listingCurrency === 'aleo' ? 0 : listingCurrency === 'usdcx' ? 1 : 2;
       try {
-        // Pre-compute on-chain sale_id using backend BHP256
-        // This matches: sale_id = BHP256(tag_hash + sale_salt + BHP256(seller_address))
-        let precomputedSaleId: string | null = null;
-        try {
-          const computed = await api.computeSaleId({
-            tagHash: selectedArtifact.tagHash,
-            saleSalt,
-          });
-          if (computed.onChainSaleId) {
-            precomputedSaleId = computed.onChainSaleId;
-            console.log('[Vault] Pre-computed on-chain sale_id:', precomputedSaleId.slice(0, 20) + '...');
-          }
-        } catch (err) {
-          console.warn('[Vault] Sale ID pre-computation failed, will use pending_ fallback:', err);
-        }
-
         // Find the artifact record from wallet
         const artifactRecord = {
           tagHash: selectedArtifact.tagHash,
@@ -562,26 +496,18 @@ export const Vault: FC = () => {
         const saleResult = await executeCreateSale(
           artifactRecord,
           priceValue,
-          currencyCode as 0 | 1 | 2,
-          saleSalt
+          currencyCode as 0 | 1 | 2
         );
 
         if (saleResult) {
-          // 3. Register sale in backend with pre-computed sale_id (or pending_ fallback)
-          const onChainSaleId = precomputedSaleId || `pending_${saleResult.txId}`;
+          // 3. Register sale in backend
           try {
             await api.createSale({
               listingId: listingResult.id,
               saleId: saleResult.saleId,
-              onChainSaleId,
               createSaleTxId: saleResult.txId,
-              saleSalt,
             });
-            if (precomputedSaleId) {
-              toast.success('Sale created! Buyers can purchase once the transaction confirms.');
-            } else {
-              toast.success('Sale created on-chain! It will become buyable once the transaction confirms.');
-            }
+            toast.success('Sale created! Buyers can purchase once the transaction confirms.');
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             console.error('[Vault] Backend sale registration failed:', errMsg);
@@ -1024,7 +950,7 @@ export const Vault: FC = () => {
             {saleRecords.map((rec, idx) => {
               const data = (rec.data || {}) as Record<string, string>;
               const tagHash = (data.tag_hash || '').replace(/\.private$/, '').replace(/field$/, '').trim();
-              const saleIdField = (data.sale_id || '').replace(/\.private$/, '').replace(/field$/, '').trim();
+              const tagCommitment = (data.tag_commitment || '').replace(/\.private$/, '').replace(/field$/, '').trim();
               const salePrice = (data.price || '').replace(/\.private$/, '').replace(/u64$/, '').trim();
               const saleCurrency = (data.currency || '').replace(/\.private$/, '').replace(/u8$/, '').trim();
               const currencyLabel = saleCurrency === '1' ? 'USDCx' : saleCurrency === '2' ? 'USAD' : 'ALEO';
@@ -1040,8 +966,8 @@ export const Vault: FC = () => {
                   {salePrice && (
                     <p className="font-mono text-xs text-white/40">Price: {(parseInt(salePrice) / 1_000_000).toFixed(2)} {currencyLabel}</p>
                   )}
-                  {saleIdField ? (
-                    <p className="font-mono text-xs text-green-400/50 truncate">Sale ID: {saleIdField.slice(0,12)}... (auto-registered)</p>
+                  {tagCommitment ? (
+                    <p className="font-mono text-xs text-green-400/50 truncate">Commitment: {tagCommitment.slice(0,12)}...</p>
                   ) : (
                     <p className="font-mono text-xs text-amber-400/50">Awaiting on-chain confirmation...</p>
                   )}
@@ -1084,7 +1010,6 @@ export const Vault: FC = () => {
             {purchaseReceipts.map((rec, idx) => {
               const data = (rec.data || {}) as Record<string, string>;
               const tagHash = (data.tag_hash || '').replace(/\.private$/, '').replace(/field$/, '').trim();
-              const saleIdField = (data.sale_id || '').replace(/\.private$/, '').replace(/field$/, '').trim();
               const purchaseAmount = (data.amount || '').replace(/\.private$/, '').replace(/u64$/, '').trim();
               const purchaseCurrency = (data.currency || '').replace(/\.private$/, '').replace(/u8$/, '').trim();
               const currencyLabel = purchaseCurrency === '1' ? 'USDCx' : purchaseCurrency === '2' ? 'USAD' : 'ALEO';
@@ -1100,17 +1025,19 @@ export const Vault: FC = () => {
                   {purchaseAmount && (
                     <p className="font-mono text-xs text-white/40">Amount: {(parseInt(purchaseAmount) / 1_000_000).toFixed(2)} {currencyLabel}</p>
                   )}
-                  {saleIdField && (
-                    <p className="font-mono text-xs text-blue-400/50 truncate">Sale: {saleIdField.slice(0,12)}...</p>
-                  )}
                   {purchaseCurrency === '0' || purchaseCurrency === '' ? (
-                    <button
-                      onClick={() => handleRefundPurchase(idx)}
-                      disabled={refundingIdx === idx}
-                      className="w-full rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
-                    >
-                      {refundingIdx === idx ? 'Refunding...' : 'Refund Escrow (after ~1000 blocks)'}
-                    </button>
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => handleRefundPurchase(idx)}
+                        disabled={refundingIdx === idx}
+                        className="w-full rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+                      >
+                        {refundingIdx === idx ? 'Refunding...' : 'Refund Escrow'}
+                      </button>
+                      <p className="text-[10px] text-white/25 text-center leading-tight">
+                        Available ~1 hour after purchase (~1000 blocks). If too early, the transaction will be rejected.
+                      </p>
+                    </div>
                   ) : (
                     <div className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2 text-center">
                       <p className="text-xs text-white/40">Paid directly to seller</p>

@@ -111,10 +111,10 @@ export type SaleStatus = 'pending_payment' | 'paid' | 'completing' | 'completed'
 export interface Sale {
   id: string;
   saleId: string;
-  onChainSaleId?: string;
   listingId: string;
   title?: string;
   tagHash: string;
+  tagCommitment?: string;
   price: number;
   currency: 'aleo' | 'usdcx' | 'usad';
   status: SaleStatus;
@@ -127,7 +127,6 @@ export interface Sale {
 
 export interface SaleStatusResponse {
   saleId: string;
-  onChainSaleId?: string;
   status: SaleStatus;
   price: number;
   currency: 'aleo' | 'usdcx' | 'usad';

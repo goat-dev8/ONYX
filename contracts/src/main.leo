@@ -1,20 +1,30 @@
-// ONYX v6 — Private Product Passports with Bounty Claims & Triple Payment
+// ONYX v7 — Private Product Passports with Bounty Claims & Triple Payment
 // Built on Aleo for Zero-Knowledge Authentication
-// Version: 6.0.0
+// Version: 7.0.0
 //
-// v6 additions over v5:
-//   - claim_bounty: owner-authorized bounty payout to claimer
-//   - claim_bounty_recover: trustless bounty claim by finder proving possession
-//   - bounty_amounts mapping: on-chain bounty registry for transparency
-//   - USAD stablecoin support via onyxpriv_v6_pay.aleo (modular payment program)
-//   - BHP256::commit_to_field() for payment receipts (proper commitment scheme)
-//   - Triple payment: ALEO credits + USDCx + USAD across all flows
-//   - All v5 transitions preserved for backward compatibility
+// v7 changes over v6:
+//   - sale_active/sale_paid mappings now keyed by tag_commitment (= BHP256(tag_hash))
+//     instead of sale_commitment (= BHP256(sale_id)). This eliminates the complex
+//     multi-step sale_id hash that caused SDK/on-chain mismatches and REJECTED TXs.
+//   - SaleRecord: removed sale_id field (no longer needed)
+//   - PurchaseReceipt: removed sale_id field
+//   - create_sale: removed sale_salt parameter
+//   - buy_sale_escrow: removed sale_id parameter — uses tag_hash directly
+//   - reg_stablecoin_buy: removed sale_id parameter — uses tag_hash directly
+//   - All complete_sale_* and cancel_sale use tag_commitment for mapping keys
+//   - All refund_sale_* use BHP256(tag_hash) for mapping keys
+//   - Buyer no longer needs to know any seller-generated IDs — just tag_hash
+//
+// Preserved from v6:
+//   - claim_bounty, claim_bounty_recover, bounty_amounts
+//   - USAD stablecoin support via onyxpriv_v7_pay.aleo
+//   - BHP256::commit_to_field() for payment receipts
+//   - Triple payment: ALEO credits + USDCx + USAD
 //   - Modular architecture: stablecoin payments split to separate program
 
 import credits.aleo;
 
-program onyxpriv_v6.aleo {
+program onyxpriv_v7.aleo {
 
     // ================================================================
     //                        RECORD TYPES
@@ -102,21 +112,19 @@ program onyxpriv_v6.aleo {
         brand: address,
         model_id: u64,
         nonce_seed: field,
-        price: u64,              // Sale price (microcredits or micro-USDCx)
-        currency: u8,            // 0 = ALEO, 1 = USDCx
-        sale_id: field,          // Unique sale identifier
-        tag_commitment: field    // BHP256(tag_hash) for lookup
+        price: u64,              // Sale price (microcredits or micro-tokens)
+        currency: u8,            // 0 = ALEO, 1 = USDCx, 2 = USAD
+        tag_commitment: field    // BHP256(tag_hash) — used as mapping key
     }
 
     // PurchaseReceipt — Buyer's proof of payment for an active sale.
     // Used for refund claims if seller doesn't complete.
     record PurchaseReceipt {
         owner: address,          // Buyer
-        sale_id: field,
         tag_hash: field,
         amount: u64,
         seller: address,
-        currency: u8             // 0 = ALEO (escrowed), 1 = USDCx (escrowed)
+        currency: u8             // 0 = ALEO (escrowed), 1 = USDCx (direct), 2 = USAD (direct)
     }
 
     // ================================================================
@@ -138,10 +146,10 @@ program onyxpriv_v6.aleo {
     // 5. Escrow/Sale timestamps — BHP256(id) → block_height
     mapping escrow_timestamps: field => u64;
 
-    // 6. Sale active status — BHP256(sale_id) → is_active
+    // 6. Sale active status — BHP256(tag_hash) → is_active
     mapping sale_active: field => bool;
 
-    // 7. Sale payment status — BHP256(sale_id) → is_paid
+    // 7. Sale payment status — BHP256(tag_hash) → is_paid
     mapping sale_paid: field => bool;
 
     // 8. NEW v6: Bounty amounts — BHP256(tag_hash) → bounty microcredits
@@ -320,7 +328,7 @@ program onyxpriv_v6.aleo {
 
     // ================================================================
     //        LEGACY ESCROW SYSTEM (v4)
-    //        Moved to onyxpriv_v6_pay.aleo for modular deployment
+    //        Moved to onyxpriv_v7_pay.aleo for modular deployment
     // ================================================================
 
     // ================================================================
@@ -478,7 +486,7 @@ program onyxpriv_v6.aleo {
         assert(!stolen);
     }
 
-    // ─── HELPER: Stablecoin verification payment (called by onyxpriv_v6_pay.aleo) ───
+    // ─── HELPER: Stablecoin verification payment (called by onyxpriv_v7_pay.aleo) ───
 
     async transition reg_stablecoin_verify(
         seller: address,
@@ -515,11 +523,11 @@ program onyxpriv_v6.aleo {
         assert(!stolen);
     }
 
-    // ─── NEW v6: USAD Verification Payment ──────────────────────────
-    // Moved to onyxpriv_v6_pay.aleo (modular stablecoin payment program)
+    // ─── NEW v7: USAD Verification Payment ──────────────────────────
+    // Moved to onyxpriv_v7_pay.aleo (modular stablecoin payment program)
 
     // ================================================================
-    //   MIGRATION HELPERS — Moved to onyxpriv_v6_pay.aleo
+    //   MIGRATION HELPERS — Moved to onyxpriv_v7_pay.aleo
     // ================================================================
 
     // ================================================================
@@ -542,17 +550,11 @@ program onyxpriv_v6.aleo {
     async transition create_sale(
         artifact: AssetArtifact,
         price: u64,
-        currency: u8,
-        sale_salt: field
+        currency: u8
     ) -> (SaleRecord, Future) {
         assert_eq(artifact.owner, self.signer);
         assert(currency == 0u8 || currency == 1u8 || currency == 2u8);
         assert(price > 0u64);
-
-        let seller_hash: field = BHP256::hash_to_field(self.signer);
-        let sale_id: field = BHP256::hash_to_field(
-            artifact.tag_hash + sale_salt + seller_hash
-        );
 
         let tag_commitment: field = BHP256::hash_to_field(artifact.tag_hash);
 
@@ -565,26 +567,23 @@ program onyxpriv_v6.aleo {
             nonce_seed: artifact.nonce_seed,
             price: price,
             currency: currency,
-            sale_id: sale_id,
             tag_commitment: tag_commitment
         };
 
-        let sale_commitment: field = BHP256::hash_to_field(sale_id);
-        let f: Future = finalize_create_sale(tag_commitment, sale_commitment);
+        let f: Future = finalize_create_sale(tag_commitment);
         return (sale, f);
     }
 
     async function finalize_create_sale(
-        tag_commitment: field,
-        sale_commitment: field
+        tag_commitment: field
     ) {
         let exists: bool = Mapping::get_or_use(tag_uniqueness, tag_commitment, false);
         assert(exists);
         let stolen: bool = Mapping::get_or_use(stolen_commitments, tag_commitment, false);
         assert(!stolen);
-        let existing: bool = Mapping::get_or_use(sale_active, sale_commitment, false);
+        let existing: bool = Mapping::get_or_use(sale_active, tag_commitment, false);
         assert(!existing);
-        Mapping::set(sale_active, sale_commitment, true);
+        Mapping::set(sale_active, tag_commitment, true);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -594,15 +593,13 @@ program onyxpriv_v6.aleo {
         pay_record: credits.aleo/credits,
         tag_hash: field,
         amount: u64,
-        seller: address,
-        sale_id: field
+        seller: address
     ) -> (PurchaseReceipt, credits.aleo/credits, Future) {
         let (change, transfer_f): (credits.aleo/credits, Future) =
             credits.aleo/transfer_private_to_public(pay_record, self.address, amount);
 
         let receipt: PurchaseReceipt = PurchaseReceipt {
             owner: self.signer,
-            sale_id: sale_id,
             tag_hash: tag_hash,
             amount: amount,
             seller: seller,
@@ -610,32 +607,29 @@ program onyxpriv_v6.aleo {
         };
 
         let tag_commitment: field = BHP256::hash_to_field(tag_hash);
-        let sale_commitment: field = BHP256::hash_to_field(sale_id);
 
-        let f: Future = finalize_buy_sale_escrow(transfer_f, tag_commitment, sale_commitment);
+        let f: Future = finalize_buy_sale_escrow(transfer_f, tag_commitment);
         return (receipt, change, f);
     }
 
     async function finalize_buy_sale_escrow(
         transfer_f: Future,
-        tag_commitment: field,
-        sale_commitment: field
+        tag_commitment: field
     ) {
         transfer_f.await();
-        let active: bool = Mapping::get_or_use(sale_active, sale_commitment, false);
+        let active: bool = Mapping::get_or_use(sale_active, tag_commitment, false);
         assert(active);
-        let already_paid: bool = Mapping::get_or_use(sale_paid, sale_commitment, false);
+        let already_paid: bool = Mapping::get_or_use(sale_paid, tag_commitment, false);
         assert(!already_paid);
         let stolen: bool = Mapping::get_or_use(stolen_commitments, tag_commitment, false);
         assert(!stolen);
-        Mapping::set(sale_paid, sale_commitment, true);
-        Mapping::set(escrow_timestamps, sale_commitment, block.height as u64);
+        Mapping::set(sale_paid, tag_commitment, true);
+        Mapping::set(escrow_timestamps, tag_commitment, block.height as u64);
     }
 
-    // ─── HELPER: Stablecoin sale payment (called by onyxpriv_v6_pay.aleo) ───
+    // ─── HELPER: Stablecoin sale payment (called by onyxpriv_v7_pay.aleo) ───
 
     async transition reg_stablecoin_buy(
-        sale_id: field,
         tag_hash: field,
         amount: u64,
         seller: address,
@@ -646,7 +640,6 @@ program onyxpriv_v6.aleo {
 
         let receipt: PurchaseReceipt = PurchaseReceipt {
             owner: self.signer,
-            sale_id: sale_id,
             tag_hash: tag_hash,
             amount: amount,
             seller: seller,
@@ -654,27 +647,25 @@ program onyxpriv_v6.aleo {
         };
 
         let tag_commitment: field = BHP256::hash_to_field(tag_hash);
-        let sale_commitment: field = BHP256::hash_to_field(sale_id);
 
-        let f: Future = finalize_reg_stablecoin_buy(tag_commitment, sale_commitment);
+        let f: Future = finalize_reg_stablecoin_buy(tag_commitment);
         return (receipt, f);
     }
 
     async function finalize_reg_stablecoin_buy(
-        tag_commitment: field,
-        sale_commitment: field
+        tag_commitment: field
     ) {
-        let active: bool = Mapping::get_or_use(sale_active, sale_commitment, false);
+        let active: bool = Mapping::get_or_use(sale_active, tag_commitment, false);
         assert(active);
-        let already_paid: bool = Mapping::get_or_use(sale_paid, sale_commitment, false);
+        let already_paid: bool = Mapping::get_or_use(sale_paid, tag_commitment, false);
         assert(!already_paid);
         let stolen: bool = Mapping::get_or_use(stolen_commitments, tag_commitment, false);
         assert(!stolen);
-        Mapping::set(sale_paid, sale_commitment, true);
-        Mapping::set(escrow_timestamps, sale_commitment, block.height as u64);
+        Mapping::set(sale_paid, tag_commitment, true);
+        Mapping::set(escrow_timestamps, tag_commitment, block.height as u64);
     }
 
-    // buy_sale_usdcx + buy_sale_usad: Moved to onyxpriv_v6_pay.aleo
+    // buy_sale_usdcx + buy_sale_usad: Moved to onyxpriv_v7_pay.aleo
 
     // ─────────────────────────────────────────────────────────────────
     // COMPLETE SALE (ESCROW) — ATOMIC: Deliver artifact + claim credits
@@ -709,7 +700,7 @@ program onyxpriv_v6.aleo {
         let (seller_credits, transfer_f): (credits.aleo/credits, Future) =
             credits.aleo/transfer_public_to_private(self.signer, sale.price);
 
-        let payment_hash: field = BHP256::hash_to_field(sale.sale_id + sale.tag_commitment);
+        let payment_hash: field = BHP256::hash_to_field(sale.tag_commitment);
 
         let buyer_receipt: BuyerReceipt = BuyerReceipt {
             owner: buyer,
@@ -728,27 +719,24 @@ program onyxpriv_v6.aleo {
             token_type: 0u8
         };
 
-        let sale_commitment: field = BHP256::hash_to_field(sale.sale_id);
-
-        let f: Future = finalize_complete_sale_escrow(transfer_f, sale_commitment, sale.tag_commitment);
+        let f: Future = finalize_complete_sale_escrow(transfer_f, sale.tag_commitment);
         return (artifact, seller_credits, buyer_receipt, seller_receipt, f);
     }
 
     async function finalize_complete_sale_escrow(
         transfer_f: Future,
-        sale_commitment: field,
         tag_commitment: field
     ) {
-        let active: bool = Mapping::get_or_use(sale_active, sale_commitment, false);
+        let active: bool = Mapping::get_or_use(sale_active, tag_commitment, false);
         assert(active);
-        let paid: bool = Mapping::get_or_use(sale_paid, sale_commitment, false);
+        let paid: bool = Mapping::get_or_use(sale_paid, tag_commitment, false);
         assert(paid);
         let stolen: bool = Mapping::get_or_use(stolen_commitments, tag_commitment, false);
         assert(!stolen);
         transfer_f.await();
-        Mapping::set(sale_active, sale_commitment, false);
-        Mapping::set(sale_paid, sale_commitment, false);
-        Mapping::set(escrow_timestamps, sale_commitment, 0u64);
+        Mapping::set(sale_active, tag_commitment, false);
+        Mapping::set(sale_paid, tag_commitment, false);
+        Mapping::set(escrow_timestamps, tag_commitment, 0u64);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -777,7 +765,7 @@ program onyxpriv_v6.aleo {
             nonce_seed: new_nonce
         };
 
-        let payment_hash: field = BHP256::hash_to_field(sale.sale_id + sale.tag_commitment);
+        let payment_hash: field = BHP256::hash_to_field(sale.tag_commitment);
 
         let buyer_receipt: BuyerReceipt = BuyerReceipt {
             owner: buyer,
@@ -796,25 +784,22 @@ program onyxpriv_v6.aleo {
             token_type: 1u8
         };
 
-        let sale_commitment: field = BHP256::hash_to_field(sale.sale_id);
-
-        let f: Future = finalize_complete_sale_usdcx(sale_commitment, sale.tag_commitment);
+        let f: Future = finalize_complete_sale_usdcx(sale.tag_commitment);
         return (artifact, buyer_receipt, seller_receipt, f);
     }
 
     async function finalize_complete_sale_usdcx(
-        sale_commitment: field,
         tag_commitment: field
     ) {
-        let active: bool = Mapping::get_or_use(sale_active, sale_commitment, false);
+        let active: bool = Mapping::get_or_use(sale_active, tag_commitment, false);
         assert(active);
-        let paid: bool = Mapping::get_or_use(sale_paid, sale_commitment, false);
+        let paid: bool = Mapping::get_or_use(sale_paid, tag_commitment, false);
         assert(paid);
         let stolen: bool = Mapping::get_or_use(stolen_commitments, tag_commitment, false);
         assert(!stolen);
-        Mapping::set(sale_active, sale_commitment, false);
-        Mapping::set(sale_paid, sale_commitment, false);
-        Mapping::set(escrow_timestamps, sale_commitment, 0u64);
+        Mapping::set(sale_active, tag_commitment, false);
+        Mapping::set(sale_paid, tag_commitment, false);
+        Mapping::set(escrow_timestamps, tag_commitment, 0u64);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -832,17 +817,16 @@ program onyxpriv_v6.aleo {
             nonce_seed: sale.nonce_seed
         };
 
-        let sale_commitment: field = BHP256::hash_to_field(sale.sale_id);
-        let f: Future = finalize_cancel_sale(sale_commitment);
+        let f: Future = finalize_cancel_sale(sale.tag_commitment);
         return (artifact, f);
     }
 
-    async function finalize_cancel_sale(sale_commitment: field) {
-        let active: bool = Mapping::get_or_use(sale_active, sale_commitment, false);
+    async function finalize_cancel_sale(tag_commitment: field) {
+        let active: bool = Mapping::get_or_use(sale_active, tag_commitment, false);
         assert(active);
-        let paid: bool = Mapping::get_or_use(sale_paid, sale_commitment, false);
+        let paid: bool = Mapping::get_or_use(sale_paid, tag_commitment, false);
         assert(!paid);
-        Mapping::set(sale_active, sale_commitment, false);
+        Mapping::set(sale_active, tag_commitment, false);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -857,23 +841,23 @@ program onyxpriv_v6.aleo {
         let (buyer_credits, transfer_f): (credits.aleo/credits, Future) =
             credits.aleo/transfer_public_to_private(self.signer, receipt.amount);
 
-        let sale_commitment: field = BHP256::hash_to_field(receipt.sale_id);
-        let f: Future = finalize_refund_sale_escrow(transfer_f, sale_commitment);
+        let tag_commitment: field = BHP256::hash_to_field(receipt.tag_hash);
+        let f: Future = finalize_refund_sale_escrow(transfer_f, tag_commitment);
         return (buyer_credits, f);
     }
 
     async function finalize_refund_sale_escrow(
         transfer_f: Future,
-        sale_commitment: field
+        tag_commitment: field
     ) {
-        let paid: bool = Mapping::get_or_use(sale_paid, sale_commitment, false);
+        let paid: bool = Mapping::get_or_use(sale_paid, tag_commitment, false);
         assert(paid);
-        let created_at: u64 = Mapping::get(escrow_timestamps, sale_commitment);
+        let created_at: u64 = Mapping::get(escrow_timestamps, tag_commitment);
         assert(created_at > 0u64);
         assert((block.height as u64) >= created_at + 1000u64);
         transfer_f.await();
-        Mapping::set(sale_paid, sale_commitment, false);
-        Mapping::set(escrow_timestamps, sale_commitment, 0u64);
+        Mapping::set(sale_paid, tag_commitment, false);
+        Mapping::set(escrow_timestamps, tag_commitment, 0u64);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -889,29 +873,29 @@ program onyxpriv_v6.aleo {
         assert_eq(receipt.owner, self.signer);
         assert_eq(receipt.currency, 1u8);
 
-        let sale_commitment: field = BHP256::hash_to_field(receipt.sale_id);
-        let f: Future = finalize_refund_sale_usdcx(sale_commitment);
+        let tag_commitment: field = BHP256::hash_to_field(receipt.tag_hash);
+        let f: Future = finalize_refund_sale_usdcx(tag_commitment);
         return f;
     }
 
-    async function finalize_refund_sale_usdcx(sale_commitment: field) {
-        let paid: bool = Mapping::get_or_use(sale_paid, sale_commitment, false);
+    async function finalize_refund_sale_usdcx(tag_commitment: field) {
+        let paid: bool = Mapping::get_or_use(sale_paid, tag_commitment, false);
         assert(paid);
-        let created_at: u64 = Mapping::get(escrow_timestamps, sale_commitment);
+        let created_at: u64 = Mapping::get(escrow_timestamps, tag_commitment);
         assert(created_at > 0u64);
         assert((block.height as u64) >= created_at + 1000u64);
-        Mapping::set(sale_paid, sale_commitment, false);
-        Mapping::set(escrow_timestamps, sale_commitment, 0u64);
+        Mapping::set(sale_paid, tag_commitment, false);
+        Mapping::set(escrow_timestamps, tag_commitment, 0u64);
     }
 
     // ================================================================
-    //    NEW v6 — USAD SALE TRANSITIONS
+    //    USAD SALE TRANSITIONS
     // ================================================================
-    // buy_sale_usad: Moved to onyxpriv_v6_pay.aleo (modular payment program)
+    // buy_sale_usad: Moved to onyxpriv_v7_pay.aleo (modular payment program)
 
     // ─────────────────────────────────────────────────────────────────
     // COMPLETE SALE (USAD) — Deliver artifact to buyer
-    // USAD was paid directly via onyxpriv_v6_pay.aleo, only delivers artifact.
+    // USAD was paid directly via onyxpriv_v7_pay.aleo, only delivers artifact.
     // ─────────────────────────────────────────────────────────────────
     async transition complete_sale_usad(
         sale: SaleRecord,
@@ -933,7 +917,7 @@ program onyxpriv_v6.aleo {
             nonce_seed: new_nonce
         };
 
-        let payment_hash: field = BHP256::hash_to_field(sale.sale_id + sale.tag_commitment);
+        let payment_hash: field = BHP256::hash_to_field(sale.tag_commitment);
 
         let buyer_receipt: BuyerReceipt = BuyerReceipt {
             owner: buyer,
@@ -952,25 +936,22 @@ program onyxpriv_v6.aleo {
             token_type: 2u8
         };
 
-        let sale_commitment: field = BHP256::hash_to_field(sale.sale_id);
-
-        let f: Future = finalize_complete_sale_usad(sale_commitment, sale.tag_commitment);
+        let f: Future = finalize_complete_sale_usad(sale.tag_commitment);
         return (artifact, buyer_receipt, seller_receipt, f);
     }
 
     async function finalize_complete_sale_usad(
-        sale_commitment: field,
         tag_commitment: field
     ) {
-        let active: bool = Mapping::get_or_use(sale_active, sale_commitment, false);
+        let active: bool = Mapping::get_or_use(sale_active, tag_commitment, false);
         assert(active);
-        let paid: bool = Mapping::get_or_use(sale_paid, sale_commitment, false);
+        let paid: bool = Mapping::get_or_use(sale_paid, tag_commitment, false);
         assert(paid);
         let stolen: bool = Mapping::get_or_use(stolen_commitments, tag_commitment, false);
         assert(!stolen);
-        Mapping::set(sale_active, sale_commitment, false);
-        Mapping::set(sale_paid, sale_commitment, false);
-        Mapping::set(escrow_timestamps, sale_commitment, 0u64);
+        Mapping::set(sale_active, tag_commitment, false);
+        Mapping::set(sale_paid, tag_commitment, false);
+        Mapping::set(escrow_timestamps, tag_commitment, 0u64);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -983,18 +964,18 @@ program onyxpriv_v6.aleo {
         assert_eq(receipt.owner, self.signer);
         assert_eq(receipt.currency, 2u8);
 
-        let sale_commitment: field = BHP256::hash_to_field(receipt.sale_id);
-        let f: Future = finalize_refund_sale_usad(sale_commitment);
+        let tag_commitment: field = BHP256::hash_to_field(receipt.tag_hash);
+        let f: Future = finalize_refund_sale_usad(tag_commitment);
         return f;
     }
 
-    async function finalize_refund_sale_usad(sale_commitment: field) {
-        let paid: bool = Mapping::get_or_use(sale_paid, sale_commitment, false);
+    async function finalize_refund_sale_usad(tag_commitment: field) {
+        let paid: bool = Mapping::get_or_use(sale_paid, tag_commitment, false);
         assert(paid);
-        let created_at: u64 = Mapping::get(escrow_timestamps, sale_commitment);
+        let created_at: u64 = Mapping::get(escrow_timestamps, tag_commitment);
         assert(created_at > 0u64);
         assert((block.height as u64) >= created_at + 1000u64);
-        Mapping::set(sale_paid, sale_commitment, false);
-        Mapping::set(escrow_timestamps, sale_commitment, 0u64);
+        Mapping::set(sale_paid, tag_commitment, false);
+        Mapping::set(escrow_timestamps, tag_commitment, 0u64);
     }
 }

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ================================================================
-# ONYX v6 — Test Script for onyxpriv_v6.aleo
+# ONYX v7 — Test Script for onyxpriv_v7.aleo
 # Run with: bash contracts/tests/run_tests.sh
 # Requires: snarkos CLI, funded accounts
 # ================================================================
@@ -9,7 +9,7 @@ set -e
 
 # ─── Configuration ───────────────────────────────────────────────
 NETWORK="testnet"
-PROGRAM="onyxpriv_v6.aleo"
+PROGRAM="onyxpriv_v7.aleo"
 API="https://api.explorer.provable.com/v1/${NETWORK}"
 BROADCAST="${API}/transaction/broadcast"
 

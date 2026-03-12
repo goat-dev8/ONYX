@@ -86,9 +86,7 @@ export const updateListingSchema = z.object({
 export const createSaleSchema = z.object({
   listingId: z.string().uuid(),
   saleId: z.string().min(1),      // Backend tracking ID
-  onChainSaleId: z.string().min(1),    // On-chain sale_id field from SaleRecord
   createSaleTxId: z.string().min(1),
-  saleSalt: z.string().optional(),     // Salt used in create_sale (for pending resolution)
 });
 
 export const purchaseSaleSchema = z.object({

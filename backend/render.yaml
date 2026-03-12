@@ -18,7 +18,7 @@ services:
       - key: ALEO_NETWORK
         value: testnet
       - key: PROGRAM_ID
-        value: onyxpriv_v6.aleo
+        value: onyxpriv_v7.aleo
       - key: DATA_DIR
         value: /var/data
     disk:

@@ -248,7 +248,7 @@ export const api = {
 
   // ========== Atomic Sales (v5) ==========
 
-  async createSale(data: { listingId: string; saleId: string; onChainSaleId: string; createSaleTxId: string; saleSalt?: string }) {
+  async createSale(data: { listingId: string; saleId: string; createSaleTxId: string }) {
     const response = await fetch(`${API_BASE_URL}/sales/create`, {
       method: 'POST',
       headers: authHeaders(),
@@ -284,33 +284,6 @@ export const api = {
     return handleResponse<{ success: boolean; sale: Sale }>(response);
   },
 
-  async computeSaleId(data: { tagHash: string; saleSalt: string }) {
-    const response = await fetch(`${API_BASE_URL}/sales/compute-sale-id`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify(data),
-    });
-    return handleResponse<{ success: boolean; onChainSaleId: string }>(response);
-  },
-
-  async updateSaleOnChainId(data: { listingId: string; onChainSaleId: string }) {
-    const response = await fetch(`${API_BASE_URL}/sales/update-onchain-id`, {
-      method: 'PATCH',
-      headers: authHeaders(),
-      body: JSON.stringify(data),
-    });
-    return handleResponse<{ success: boolean; updated: boolean }>(response);
-  },
-
-  async updateCreateTx(data: { listingId: string; createSaleTxId: string }) {
-    const response = await fetch(`${API_BASE_URL}/sales/update-create-tx`, {
-      method: 'PATCH',
-      headers: authHeaders(),
-      body: JSON.stringify(data),
-    });
-    return handleResponse<{ success: boolean; updated: boolean }>(response);
-  },
-
   async refundSale(data: { saleId: string; refundTxId: string }) {
     const response = await fetch(`${API_BASE_URL}/sales/refund`, {
       method: 'POST',
@@ -320,9 +293,8 @@ export const api = {
     return handleResponse<{ success: boolean; sale: Sale }>(response);
   },
 
-  async getSaleStatus(saleId: string, saleCommitment?: string) {
-    const params = saleCommitment ? `?saleCommitment=${encodeURIComponent(saleCommitment)}` : '';
-    const response = await fetch(`${API_BASE_URL}/sales/${encodeURIComponent(saleId)}/status${params}`);
+  async getSaleStatus(saleId: string) {
+    const response = await fetch(`${API_BASE_URL}/sales/${encodeURIComponent(saleId)}/status`);
     return handleResponse<SaleStatusResponse>(response);
   },
 
@@ -342,11 +314,11 @@ export const api = {
 
   async getSaleByListing(listingId: string) {
     const response = await fetch(`${API_BASE_URL}/sales/by-listing/${encodeURIComponent(listingId)}`);
-    return handleResponse<{ found: boolean; sale: { saleId: string; onChainSaleId: string; listingId: string; sellerAddress: string; price: number; currency: 'aleo' | 'usdcx'; status: string; createSaleTxId?: string; createdAt: string } | null }>(response);
+    return handleResponse<{ found: boolean; sale: { saleId: string; listingId: string; sellerAddress: string; tagHash: string; tagCommitment: string; price: number; currency: 'aleo' | 'usdcx' | 'usad'; status: string; createSaleTxId?: string; createdAt: string } | null }>(response);
   },
 
   async checkSaleOnChain(listingId: string) {
     const response = await fetch(`${API_BASE_URL}/sales/check-on-chain/${encodeURIComponent(listingId)}`);
-    return handleResponse<{ active: boolean; onChainSaleId?: string; reason?: string }>(response);
+    return handleResponse<{ active: boolean; tagCommitment?: string; reason?: string }>(response);
   },
 };

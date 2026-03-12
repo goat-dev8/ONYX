@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <code>onyxpriv_v6.aleo</code> + <code>onyxpriv_v6_pay.aleo</code> · Deployed on Aleo Testnet · Modular 2-program architecture · 8 mappings
+  <code>onyxpriv_v7.aleo</code> + <code>onyxpriv_v7_pay.aleo</code> · Deployed on Aleo Testnet · Modular 2-program architecture · 8 mappings
 </p>
 
 <p align="center">
@@ -87,7 +87,7 @@ Physical Item (watch, handbag, sneaker)
 │                                                                                  │
 │   ┌────────────────┐        ┌────────────────┐        ┌──────────────────────┐   │
 │   │    Frontend     │  API   │    Backend      │  RPC   │   Aleo Blockchain    │   │
-│   │   React + Vite  │──────▶│  Express + TS   │──────▶│  onyxpriv_v6.aleo    │   │
+│   │   React + Vite  │──────▶│  Express + TS   │──────▶│  onyxpriv_v7.aleo    │   │
 │   │   Port 5173     │◀──────│  Port 3001      │◀──────│  8 mappings          │   │
 │   └───────┬─────────┘       └───────┬─────────┘       └──────────┬───────────┘   │
 │           │                         │                            │               │
@@ -127,8 +127,8 @@ The Aleo blockchain stores only:
 
 | Program | Purpose | Statements |
 |---------|---------|------------|
-| `onyxpriv_v6.aleo` | Core — passports, sales, bounties, proofs | 525 |
-| `onyxpriv_v6_pay.aleo` | Payments — USDCx & USAD stablecoin flows | 32 |
+| `onyxpriv_v7.aleo` | Core — passports, sales, bounties, proofs | 525 |
+| `onyxpriv_v7_pay.aleo` | Payments — USDCx & USAD stablecoin flows | 32 |
 
 The payment program calls back into the core via helper transitions (`reg_stablecoin_verify`, `reg_stablecoin_buy`) — secured with `assert_neq(self.caller, self.signer)` so only the payment program can invoke them.
 
@@ -164,7 +164,7 @@ The payment program calls back into the core via helper transitions (`reg_stable
 
 ### Transitions
 
-**Core Program (`onyxpriv_v6.aleo`):**
+**Core Program (`onyxpriv_v7.aleo`):**
 ```
 Brand Management
   ├── register_brand()                    — Self-register as a brand
@@ -188,7 +188,7 @@ Resale Proofs
 
 Atomic Sale System
   ├── create_sale(artifact, price, currency, salt)
-  ├── buy_sale_escrow(credits, tag, amount, seller, id)
+  ├── buy_sale_escrow(credits, tag, amount, seller)
   ├── complete_sale_escrow / complete_sale_usdcx / complete_sale_usad
   ├── cancel_sale(sale)
   └── refund_sale_escrow / refund_sale_usdcx / refund_sale_usad
@@ -198,7 +198,7 @@ Cross-program Helpers (called by payment program only)
   └── reg_stablecoin_buy(...)             — Create PurchaseReceipt for stablecoin purchase
 ```
 
-**Payment Program (`onyxpriv_v6_pay.aleo`):**
+**Payment Program (`onyxpriv_v7_pay.aleo`):**
 ```
   ├── pay_verification_usdcx / pay_verification_usad — Stablecoin verification payments
   └── buy_sale_usdcx / buy_sale_usad                — Stablecoin sale purchases
@@ -438,7 +438,7 @@ CORS_ORIGIN=http://localhost:5173
 **Frontend** (`frontend/.env`):
 ```env
 VITE_API_BASE_URL=http://localhost:3001
-VITE_ALEO_PROGRAM_ID=onyxpriv_v6.aleo
+VITE_ALEO_PROGRAM_ID=onyxpriv_v7.aleo
 VITE_ALEO_NETWORK=testnet
 ```
 
@@ -462,7 +462,7 @@ Open `http://localhost:5173` and connect Shield Wallet.
 
 | Property | Value |
 |----------|-------|
-| Program | `onyxpriv_v6.aleo` |
+| Program | `onyxpriv_v7.aleo` |
 | Network | Aleo Testnet |
 | Deploy TX | _pending deployment_ |
 | Leo version | 3.4.0 |
@@ -603,7 +603,7 @@ ONYX/
 All bugs discovered during development and testing were identified, root-caused, and resolved. See [summaryv5.md](summaryv5.md) for the complete bug log with root causes and fixes.
 
 Key fixes include:
-- Atomic sale field naming (`saleSalt` → `onChainSaleId` across 7 files)
+- Atomic sale mapping key redesign (`sale_id` eliminated, `tag_commitment = BHP256(tag_hash)` used as mapping key)
 - SaleRecord detection priority over MintCertificate
 - USDCx 6-decimal price scaling across 6 display files
 - Cancel sale marketplace cleanup (on-chain + backend + listing deletion)

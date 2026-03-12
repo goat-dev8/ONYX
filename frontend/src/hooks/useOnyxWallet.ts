@@ -1058,8 +1058,7 @@ export function useOnyxWallet() {
     async (
       artifact: { _plaintext?: string; _raw?: Record<string, unknown>; tagHash: string },
       price: number,
-      currency: 0 | 1 | 2,
-      saleSalt: string
+      currency: 0 | 1 | 2
     ): Promise<{ txId: string; saleId: string } | null> => {
       const executor = getExecutor();
       if (!executor) {
@@ -1083,7 +1082,6 @@ export function useOnyxWallet() {
             recordInput,
             `${price}u64`,
             `${currency}u8`,
-            `${saleSalt}field`,
           ],
           fee: DEFAULT_FEE,
           privateFee: false,
@@ -1114,8 +1112,7 @@ export function useOnyxWallet() {
     async (
       tagHash: string,
       amount: number,
-      sellerAddress: string,
-      saleId: string
+      sellerAddress: string
     ): Promise<string | null> => {
       const executor = getExecutor();
       if (!executor) {
@@ -1143,7 +1140,6 @@ export function useOnyxWallet() {
             `${tagHash}field`,
             `${amount}u64`,
             sellerAddress,
-            `${saleId}field`,
           ],
           fee: DEFAULT_FEE,
           privateFee: false,
@@ -1171,8 +1167,7 @@ export function useOnyxWallet() {
     async (
       sellerAddress: string,
       amount: bigint,
-      tagHash: string,
-      saleId: string
+      tagHash: string
     ): Promise<string | null> => {
       const executor = getExecutor();
       if (!executor) {
@@ -1224,7 +1219,6 @@ export function useOnyxWallet() {
             tokenInput as string,
             `[${buyerProof}, ${sellerProof}]`,
             `${tagHash}field`,
-            `${saleId}field`,
           ],
           fee: DEFAULT_FEE,
           privateFee: false,
@@ -1649,8 +1643,7 @@ export function useOnyxWallet() {
     async (
       seller: string,
       amount: number,
-      tagHash: string,
-      saleId: string
+      tagHash: string
     ): Promise<string | null> => {
       const executor = getExecutor();
       if (!executor) {
@@ -1692,7 +1685,7 @@ export function useOnyxWallet() {
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.payProgramId,
           function: 'buy_sale_usad',
-          inputs: [seller, `${amount}u128`, usadInput, proofStr, `${tagHash}field`, `${saleId}field`],
+          inputs: [seller, `${amount}u128`, usadInput, proofStr, `${tagHash}field`],
           fee: DEFAULT_FEE,
           privateFee: false,
         });
@@ -1890,8 +1883,7 @@ export function useOnyxWallet() {
         let tag_commitment = extractRecordField(rec as Record<string, unknown>, 'tag_commitment');
         let artifact_hash = extractRecordField(rec as Record<string, unknown>, 'artifact_hash');
         let proof_token = extractRecordField(rec as Record<string, unknown>, 'token');
-        // v5 SaleRecord fields
-        let sale_id = extractRecordField(rec as Record<string, unknown>, 'sale_id');
+        // v5 SaleRecord fields (sale_id removed in v7)
         let sale_price = extractRecordField(rec as Record<string, unknown>, 'price');
         let sale_currency = extractRecordField(rec as Record<string, unknown>, 'currency');
 
@@ -1916,7 +1908,6 @@ export function useOnyxWallet() {
               tag_commitment = tag_commitment || parsed.tag_commitment || '';
               artifact_hash = artifact_hash || parsed.artifact_hash || '';
               proof_token = proof_token || parsed.token || '';
-              sale_id = sale_id || parsed.sale_id || '';
               sale_price = sale_price || parsed.price || '';
               sale_currency = sale_currency || parsed.currency || '';
             }
@@ -1954,7 +1945,6 @@ export function useOnyxWallet() {
                 tag_commitment = parsed.tag_commitment || '';
                 artifact_hash = parsed.artifact_hash || '';
                 proof_token = parsed.token || '';
-                sale_id = parsed.sale_id || '';
                 sale_price = parsed.price || '';
                 sale_currency = parsed.currency || '';
               }
@@ -1964,13 +1954,13 @@ export function useOnyxWallet() {
           }
         }
 
-        const data = { brand, tag_hash, serial_hash, model_id, nonce_seed, escrow_id, amount, seller, payment_hash, token_type, tag_commitment, artifact_hash, proof_token, sale_id, sale_price, sale_currency, currency: sale_currency };
+        const data = { brand, tag_hash, serial_hash, model_id, nonce_seed, escrow_id, amount, seller, payment_hash, token_type, tag_commitment, artifact_hash, proof_token, sale_price, sale_currency, currency: sale_currency };
 
         // Determine record type based on extracted fields
         const isEscrowReceipt = false; // Legacy escrow removed in v6
         const isBuyerReceipt = !!payment_hash || rec.recordName === 'BuyerReceipt' || rec.functionName === 'pay_verification' || rec.functionName === 'pay_verification_usdcx' || rec.functionName === 'pay_verification_usad';
         // v5 new record types — check BEFORE v4 types since SaleRecord has superset of fields
-        const isSaleRecord = rec.recordName === 'SaleRecord' || (rec.functionName === 'create_sale' && (!!sale_id || !!sale_price)) || (!!sale_id && !!sale_price && !!tag_hash);
+        const isSaleRecord = rec.recordName === 'SaleRecord' || (rec.functionName === 'create_sale' && (!!tag_commitment || !!sale_price)) || (!!sale_price && !!tag_hash && !!tag_commitment);
         const isPurchaseReceipt = rec.recordName === 'PurchaseReceipt' || rec.functionName === 'buy_sale_escrow' || rec.functionName === 'buy_sale_usdcx' || rec.functionName === 'buy_sale_usad';
         // v4 new record types — only match if NOT a SaleRecord
         const isMintCertificate = !isSaleRecord && (rec.recordName === 'MintCertificate' || (!!tag_commitment && !!model_id && !escrow_id && !payment_hash && !proof_token));

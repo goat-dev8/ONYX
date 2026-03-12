@@ -213,7 +213,7 @@ router.get('/stolen/check/:tagHash', (req: Request, res: Response): void => {
 router.get('/stolen/check-commitment/:commitment', async (req: Request, res: Response): Promise<void> => {
   try {
     const { commitment } = req.params;
-    const programId = process.env.PROGRAM_ID || 'onyxpriv_v6.aleo';
+    const programId = process.env.PROGRAM_ID || 'onyxpriv_v7.aleo';
     const { getMappingValue } = await import('../services/provableApi');
     
     const value = await getMappingValue(programId, 'stolen_commitments', commitment);
@@ -234,7 +234,7 @@ router.get('/stolen/check-commitment/:commitment', async (req: Request, res: Res
 router.get('/tag/exists/:commitment', async (req: Request, res: Response): Promise<void> => {
   try {
     const { commitment } = req.params;
-    const programId = process.env.PROGRAM_ID || 'onyxpriv_v6.aleo';
+    const programId = process.env.PROGRAM_ID || 'onyxpriv_v7.aleo';
     const { getMappingValue } = await import('../services/provableApi');
     
     const value = await getMappingValue(programId, 'tag_uniqueness', commitment);

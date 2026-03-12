@@ -9,7 +9,6 @@ import { execFile } from 'child_process';
 import path from 'path';
 
 const WORKER_PATH = path.resolve(__dirname, '../../bhp256-worker.mjs');
-const SALE_ID_WORKER_PATH = path.resolve(__dirname, '../../sale-id-worker.mjs');
 
 // Cache computed commitments to avoid repeated subprocess calls
 const commitmentCache = new Map<string, string>();
@@ -61,41 +60,6 @@ export async function computeBHP256(fieldValue: string): Promise<string | null> 
         resolve(result);
       } else {
         console.error('[BHP256] Unexpected output:', result);
-        resolve(null);
-      }
-    });
-  });
-}
-
-/**
- * Compute on-chain sale_id from sale parameters.
- * Replicates the Leo contract: sale_id = BHP256(tag_hash + sale_salt + BHP256(seller_address))
- */
-export async function computeSaleId(
-  tagHash: string,
-  saleSalt: string,
-  sellerAddress: string
-): Promise<string | null> {
-  const cacheKey = `sale_${tagHash}_${saleSalt}_${sellerAddress}`;
-  const cached = commitmentCache.get(cacheKey);
-  if (cached) return cached;
-
-  return new Promise((resolve) => {
-    execFile('node', [SALE_ID_WORKER_PATH, tagHash, saleSalt, sellerAddress], {
-      timeout: 30000,
-      cwd: path.resolve(__dirname, '../..'),
-    }, (error, stdout, stderr) => {
-      if (error) {
-        console.error('[BHP256] Sale ID worker error:', error.message, stderr);
-        resolve(null);
-        return;
-      }
-      const result = stdout.trim();
-      if (result && result.endsWith('field')) {
-        commitmentCache.set(cacheKey, result);
-        resolve(result);
-      } else {
-        console.error('[BHP256] Sale ID unexpected output:', result);
         resolve(null);
       }
     });

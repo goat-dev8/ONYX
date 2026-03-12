@@ -25,13 +25,12 @@ export const Purchase: FC = () => {
 
   const [listing, setListing] = useState<Listing | null>(null);
   const [saleId, setSaleId] = useState(saleIdFromUrl);
-  const [onChainSaleId, setOnChainSaleId] = useState('');
   const [sellerAddress, setSellerAddress] = useState('');
   const [step, setStep] = useState<PurchaseStep>('preview');
   const [loading, setLoading] = useState(true);
   const [noSale, setNoSale] = useState(false);
-  const [salePending, setSalePending] = useState(false);
   const [saleConfirmedOnChain, setSaleConfirmedOnChain] = useState(false);
+  const [salePending, setSalePending] = useState(false);
   const [txId, setTxId] = useState<string | null>(null);
   const [onChainTxId, setOnChainTxId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,45 +47,37 @@ export const Purchase: FC = () => {
 
       // Resolve saleId: use URL param or look up by listing
       let resolvedSaleId = saleIdFromUrl;
-      if (!resolvedSaleId && listingId) {
+      if (listingId) {
         try {
-          const saleLookup = await api.getSaleByListing(listingId);
-          if (saleLookup.found && saleLookup.sale) {
-            resolvedSaleId = saleLookup.sale.saleId;
-            setSaleId(resolvedSaleId);
-            // Get seller address from sale lookup (needed for buy_sale_escrow)
+          // Always look up sale by listing to get sellerAddress and tagHash
+          const saleLookup = await api.getSaleByListing(listingId).catch(() => null);
+          if (saleLookup && saleLookup.found && saleLookup.sale) {
+            if (!resolvedSaleId) {
+              resolvedSaleId = saleLookup.sale.saleId;
+              setSaleId(resolvedSaleId);
+            }
             if (saleLookup.sale.sellerAddress) setSellerAddress(saleLookup.sale.sellerAddress);
-            if (saleLookup.sale.onChainSaleId) {
-              if (saleLookup.sale.onChainSaleId.startsWith('pending_')) {
-                setSalePending(true);
-              } else {
-                setOnChainSaleId(saleLookup.sale.onChainSaleId);
-              }
+            if (saleLookup.sale.tagHash) console.log('[Purchase] Sale tagHash:', saleLookup.sale.tagHash);
+          }
+          // Always check on-chain status
+          try {
+            const onChainCheck = await api.checkSaleOnChain(listingId);
+            if (onChainCheck.active) {
+              setSaleConfirmedOnChain(true);
+              setSalePending(false);
+            } else {
+              setSalePending(true);
             }
-            // Verify the sale is active on-chain via backend (multi-strategy check)
-            try {
-              const onChainCheck = await api.checkSaleOnChain(listingId);
-              if (onChainCheck.active) {
-                setSaleConfirmedOnChain(true);
-                setSalePending(false);
-                if (onChainCheck.onChainSaleId) setOnChainSaleId(onChainCheck.onChainSaleId);
-              } else {
-                setSalePending(true);
-              }
-            } catch {
-              // If backend check fails, fall back to pending state
-              if (!saleLookup.sale.onChainSaleId?.startsWith('pending_')) {
-                // Has a real sale ID but can't verify — let them try
-                setSaleConfirmedOnChain(true);
-              } else {
-                setSalePending(true);
-              }
-            }
-          } else {
+          } catch {
+            // If backend check fails, assume active if sale exists
+            setSaleConfirmedOnChain(true);
+          }
+          // If no sale found and no saleId from URL
+          if (!resolvedSaleId && (!saleLookup || !saleLookup.found)) {
             setNoSale(true);
           }
         } catch {
-          setNoSale(true);
+          if (!resolvedSaleId) setNoSale(true);
         }
       }
 
@@ -117,13 +108,10 @@ export const Purchase: FC = () => {
     const doCheck = async () => {
       if (cancelled) return;
       try {
-        // Ask backend to verify on-chain state (multi-strategy check)
         const onChainCheck = await api.checkSaleOnChain(listingId);
         if (onChainCheck.active) {
           setSaleConfirmedOnChain(true);
           setSalePending(false);
-          if (onChainCheck.onChainSaleId) setOnChainSaleId(onChainCheck.onChainSaleId);
-          // Also refresh seller address if needed
           if (!sellerAddress) {
             const saleLookup = await api.getSaleByListing(listingId);
             if (saleLookup.found && saleLookup.sale?.sellerAddress) {
@@ -169,7 +157,7 @@ export const Purchase: FC = () => {
   // ─── Buy with ALEO credits (escrow) ───
   const handleBuyEscrow = async () => {
     if (!(await ensureAuth())) return;
-    if (!listing || !saleId || !onChainSaleId || !sellerAddress) {
+    if (!listing || !saleId || !sellerAddress) {
       toast.error('Missing sale information');
       return;
     }
@@ -181,8 +169,7 @@ export const Purchase: FC = () => {
       const result = await executeBuySaleEscrow(
         listing.tagHash,
         listing.price,
-        sellerAddress,
-        onChainSaleId  // Use on-chain sale_id from SaleRecord
+        sellerAddress
       );
 
       if (!result) {
@@ -216,7 +203,7 @@ export const Purchase: FC = () => {
   // ─── Buy with USDCx ───
   const handleBuyUsdcx = async () => {
     if (!(await ensureAuth())) return;
-    if (!listing || !saleId || !onChainSaleId || !sellerAddress) {
+    if (!listing || !saleId || !sellerAddress) {
       toast.error('Missing sale information');
       return;
     }
@@ -228,8 +215,7 @@ export const Purchase: FC = () => {
       const result = await executeBuySaleUsdcx(
         sellerAddress,
         BigInt(listing.price),
-        listing.tagHash,
-        onChainSaleId  // Use on-chain sale_id from SaleRecord
+        listing.tagHash
       );
 
       if (!result) {
@@ -262,7 +248,7 @@ export const Purchase: FC = () => {
   // ─── Buy with USAD ───
   const handleBuyUsad = async () => {
     if (!(await ensureAuth())) return;
-    if (!listing || !saleId || !onChainSaleId || !sellerAddress) {
+    if (!listing || !saleId || !sellerAddress) {
       toast.error('Missing sale information');
       return;
     }
@@ -274,8 +260,7 @@ export const Purchase: FC = () => {
       const result = await executeBuySaleUsad(
         sellerAddress,
         listing.price,
-        listing.tagHash,
-        onChainSaleId
+        listing.tagHash
       );
 
       if (!result) {
@@ -443,16 +428,16 @@ export const Purchase: FC = () => {
                 <p className="text-sm font-medium text-blue-400/80">Sale confirming on-chain...</p>
                 <p className="text-xs text-white/40 leading-relaxed">
                   The seller&apos;s sale transaction is being confirmed on the Aleo network.
-                  This usually takes 1-3 minutes. The page auto-checks every 5 seconds.
+                  This usually takes 1-2 minutes. The page auto-checks every 5 seconds.
                 </p>
                 <button
-                  onClick={() => fetchData()}
+                  onClick={() => { setSaleConfirmedOnChain(true); setSalePending(false); }}
                   className="mt-1 rounded-lg bg-blue-500/10 px-4 py-1.5 text-xs font-medium text-blue-400/70 hover:bg-blue-500/20 hover:text-blue-400 transition-colors"
                 >
-                  Check Now
+                  Skip &amp; Buy Anyway
                 </button>
               </div>
-            ) : !saleId || !onChainSaleId || !sellerAddress || !saleConfirmedOnChain ? (
+            ) : !saleId || !sellerAddress || !saleConfirmedOnChain ? (
               <p className="text-sm text-amber-400/70">Invalid sale link. Please go back to the marketplace.</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -527,7 +512,7 @@ export const Purchase: FC = () => {
             <h3 className="font-heading text-lg font-semibold text-emerald-300">Payment Deposited!</h3>
             <p className="text-sm text-white/50">
               {listing.currency === 'aleo'
-                ? 'Your ALEO credits are securely escrowed on-chain. The seller will now deliver your artifact. If not completed within ~1000 blocks, you can reclaim your credits from your Vault.'
+                ? 'Your ALEO credits are securely escrowed on-chain. The seller will now deliver your artifact. If not completed within ~1000 blocks, you can reclaim your credits.'
                 : `Your ${listing.currency === 'usad' ? 'USAD' : 'USDCx'} has been sent to the seller. They will now deliver your artifact.`
               }
             </p>
@@ -546,12 +531,27 @@ export const Purchase: FC = () => {
                 <span className="text-xs text-white/30">Confirming transaction...</span>
               </div>
             ) : null}
-            <button
-              onClick={() => navigate('/marketplace')}
-              className="mt-4 rounded-lg bg-champagne-500/20 px-6 py-2 text-sm font-medium text-champagne-300 hover:bg-champagne-500/30 transition-colors"
-            >
-              Back to Marketplace
-            </button>
+            <div className="flex items-center justify-center gap-3 mt-4">
+              <button
+                onClick={() => navigate('/marketplace')}
+                className="rounded-lg bg-champagne-500/20 px-6 py-2 text-sm font-medium text-champagne-300 hover:bg-champagne-500/30 transition-colors"
+              >
+                Back to Marketplace
+              </button>
+              {listing.currency === 'aleo' && (
+                <button
+                  onClick={() => navigate('/vault')}
+                  className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-6 py-2 text-sm font-medium text-amber-300 hover:bg-amber-500/20 transition-colors"
+                >
+                  Refund from Vault
+                </button>
+              )}
+            </div>
+            {listing.currency === 'aleo' && (
+              <p className="text-xs text-white/30 mt-2">
+                Refunds are available ~1 hour after purchase (~1000 blocks). Go to your Vault to request a refund if the seller hasn&apos;t delivered.
+              </p>
+            )}
           </div>
         )}
 

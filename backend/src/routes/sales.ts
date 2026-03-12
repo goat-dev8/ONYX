@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import crypto from 'crypto';
 import { DatabaseService } from '../services/db';
 import { getMappingValue, verifyTransactionAccepted } from '../services/provableApi';
-import { computeBHP256, computeSaleId } from '../services/bhp256';
+import { computeBHP256 } from '../services/bhp256';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import {
   createSaleSchema,
@@ -15,7 +15,7 @@ import { Sale } from '../types';
 
 const router = Router();
 const db = DatabaseService.getInstance();
-const PROGRAM_ID = process.env.PROGRAM_ID || 'onyxpriv_v6.aleo';
+const PROGRAM_ID = process.env.PROGRAM_ID || 'onyxpriv_v7.aleo';
 
 // ============================================================
 // POST /sales/create — Register a new on-chain sale
@@ -30,10 +30,10 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response): 
       return;
     }
 
-    const { listingId, saleId, onChainSaleId, createSaleTxId, saleSalt } = parsed.data;
+    const { listingId, saleId, createSaleTxId } = parsed.data;
     const sellerAddress = req.userAddress!;
     const sellerHash = crypto.createHash('sha256').update(sellerAddress).digest('hex');
-    console.log('[Sales] Create request:', { listingId, saleId, onChainSaleId: onChainSaleId?.slice(0, 20), sellerAddress: sellerAddress.slice(0, 20) });
+    console.log('[Sales] Create request:', { listingId, saleId, sellerAddress: sellerAddress.slice(0, 20) });
 
     // Verify listing exists and belongs to seller
     const listing = db.getListing(listingId);
@@ -65,7 +65,6 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response): 
     const sale: Sale = {
       id: crypto.randomUUID(),
       saleId,
-      onChainSaleId,
       listingId,
       sellerAddress,
       sellerHash,
@@ -75,7 +74,6 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response): 
       currency: listing.currency,
       status: 'pending_payment',
       createSaleTxId,
-      saleSalt,
       createdAt: now,
       updatedAt: now,
     };
@@ -105,6 +103,7 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response): 
         price: sale.price,
         currency: sale.currency,
         tagHash: sale.tagHash,
+        tagCommitment: sale.tagCommitment,
         createdAt: sale.createdAt,
       },
     });
@@ -466,33 +465,17 @@ router.get('/by-listing/:listingId', async (req, res): Promise<void> => {
       return;
     }
 
-    // Auto-resolve pending sales: if onChainSaleId starts with pending_ and we have
-    // the saleSalt, compute the real sale_id using BHP256
-    if (sale.onChainSaleId.startsWith('pending_') && sale.saleSalt && sale.sellerAddress) {
-      try {
-        const resolved = await computeSaleId(sale.tagHash, sale.saleSalt, sale.sellerAddress);
-        if (resolved) {
-          const cleanId = resolved.replace(/field$/, '');
-          sale.onChainSaleId = cleanId;
-          sale.updatedAt = new Date().toISOString();
-          db.setSale(sale);
-          console.log('[Sales] Auto-resolved pending sale_id for listing', listingId, ':', cleanId.slice(0, 20) + '...');
-        }
-      } catch (err) {
-        console.warn('[Sales] Auto-resolve failed for listing', listingId, ':', err);
-      }
-    }
-
     res.json({
       found: true,
       sale: {
         saleId: sale.saleId,
-        onChainSaleId: sale.onChainSaleId,
         listingId: sale.listingId,
         sellerAddress: sale.sellerAddress,
         price: sale.price,
         currency: sale.currency,
         status: sale.status,
+        tagHash: sale.tagHash,
+        tagCommitment: sale.tagCommitment,
         createSaleTxId: sale.createSaleTxId,
         createdAt: sale.createdAt,
       },
@@ -504,81 +487,8 @@ router.get('/by-listing/:listingId', async (req, res): Promise<void> => {
 });
 
 // ============================================================
-// POST /sales/compute-sale-id — Pre-compute on-chain sale_id
-// Called BEFORE create_sale transaction to get the exact sale_id
-// ============================================================
-router.post('/compute-sale-id', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const { tagHash, saleSalt } = req.body;
-    const sellerAddress = req.userAddress!;
-
-    if (!tagHash || !saleSalt) {
-      res.status(400).json({ error: 'tagHash and saleSalt are required' });
-      return;
-    }
-
-    const saleId = await computeSaleId(tagHash, saleSalt, sellerAddress);
-    if (!saleId) {
-      res.status(500).json({ error: 'Failed to compute sale_id' });
-      return;
-    }
-
-    // Strip 'field' suffix for clean storage
-    const cleanSaleId = saleId.replace(/field$/, '');
-
-    console.log('[Sales] Computed sale_id for tag', tagHash, ':', cleanSaleId.slice(0, 20) + '...');
-    res.json({ success: true, onChainSaleId: cleanSaleId });
-  } catch (err) {
-    console.error('[Sales] Compute sale_id error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ============================================================
-// PATCH /sales/update-onchain-id — Update pending onChainSaleId with real value
-// Called by seller after SaleRecord appears in wallet
-// ============================================================
-router.patch('/update-onchain-id', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const { listingId, onChainSaleId } = req.body;
-    if (!listingId || !onChainSaleId) {
-      res.status(400).json({ error: 'listingId and onChainSaleId are required' });
-      return;
-    }
-
-    const sellerHash = crypto.createHash('sha256').update(req.userAddress!).digest('hex');
-    const sale = db.getSaleByListingId(listingId);
-
-    if (!sale) {
-      res.status(404).json({ error: 'No sale found for this listing' });
-      return;
-    }
-    if (sale.sellerHash !== sellerHash) {
-      res.status(403).json({ error: 'Only the seller can update the sale' });
-      return;
-    }
-
-    // Only update if the current onChainSaleId is a pending placeholder
-    if (!sale.onChainSaleId.startsWith('pending_')) {
-      res.json({ success: true, updated: false, message: 'Sale already has a confirmed onChainSaleId' });
-      return;
-    }
-
-    sale.onChainSaleId = onChainSaleId;
-    sale.updatedAt = new Date().toISOString();
-    db.setSale(sale);
-
-    console.log('[Sales] Updated onChainSaleId for listing', listingId, ':', onChainSaleId.slice(0, 20));
-    res.json({ success: true, updated: true });
-  } catch (err) {
-    console.error('[Sales] Update onchain-id error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ============================================================
 // GET /sales/check-on-chain/:listingId — Verify sale is active on-chain
-// Uses multiple verification strategies with fallbacks
+// Uses tag_commitment (BHP256(tag_hash)) as the mapping key
 // ============================================================
 router.get('/check-on-chain/:listingId', async (req, res): Promise<void> => {
   try {
@@ -590,48 +500,30 @@ router.get('/check-on-chain/:listingId', async (req, res): Promise<void> => {
       return;
     }
 
-    // Need a real onChainSaleId (not pending_)
-    let saleIdToCheck = sale.onChainSaleId;
-    if (saleIdToCheck.startsWith('pending_') && sale.saleSalt && sale.sellerAddress) {
+    // Strategy 1: Direct mapping check using tag_commitment
+    // tag_commitment = BHP256(tag_hash) — already stored on the sale record
+    if (sale.tagCommitment) {
       try {
-        const resolved = await computeSaleId(sale.tagHash, sale.saleSalt, sale.sellerAddress);
-        if (resolved) {
-          saleIdToCheck = resolved.replace(/field$/, '');
-          sale.onChainSaleId = saleIdToCheck;
-          sale.updatedAt = new Date().toISOString();
-          db.setSale(sale);
-        }
-      } catch { /* continue with pending */ }
-    }
-
-    if (saleIdToCheck.startsWith('pending_')) {
-      res.json({ active: false, reason: 'pending_id' });
-      return;
-    }
-
-    // Strategy 1: BHP256 mapping check (may fail if SDK hash differs from on-chain)
-    try {
-      const saleIdField = saleIdToCheck.endsWith('field') ? saleIdToCheck : `${saleIdToCheck}field`;
-      const saleCommitment = await computeBHP256(saleIdField);
-      if (saleCommitment) {
-        const activeVal = await getMappingValue(PROGRAM_ID, 'sale_active', saleCommitment);
+        const commitmentKey = sale.tagCommitment.endsWith('field')
+          ? sale.tagCommitment : `${sale.tagCommitment}field`;
+        const activeVal = await getMappingValue(PROGRAM_ID, 'sale_active', commitmentKey);
         if (activeVal !== null && String(activeVal).includes('true')) {
           console.log('[Sales] Verified via mapping for listing', listingId);
-          res.json({ active: true, onChainSaleId: saleIdToCheck, verified: 'mapping' });
+          res.json({ active: true, tagCommitment: sale.tagCommitment, verified: 'mapping' });
           return;
         }
+      } catch (err) {
+        console.warn('[Sales] Mapping check failed:', err);
       }
-    } catch (err) {
-      console.warn('[Sales] BHP256 mapping check failed:', err);
     }
 
-    // Strategy 2: Verify createSaleTxId on Aleo explorer (works for real at1... IDs)
+    // Strategy 2: Verify createSaleTxId on Aleo explorer
     if (sale.createSaleTxId && sale.createSaleTxId.startsWith('at1')) {
       try {
         const txAccepted = await verifyTransactionAccepted(sale.createSaleTxId);
         if (txAccepted) {
           console.log('[Sales] Verified via tx for listing', listingId, ':', sale.createSaleTxId.slice(0, 20));
-          res.json({ active: true, onChainSaleId: saleIdToCheck, verified: 'tx' });
+          res.json({ active: true, tagCommitment: sale.tagCommitment, verified: 'tx' });
           return;
         }
       } catch (err) {
@@ -639,62 +531,18 @@ router.get('/check-on-chain/:listingId', async (req, res): Promise<void> => {
       }
     }
 
-    // Strategy 3: Time-based heuristic — if a real sale_id was computed and enough
-    // time has passed for finalization, assume active. The on-chain assertion in
-    // buy_sale_escrow finalize protects against invalid purchases (tx reverts).
+    // Strategy 3: Time-based heuristic
     const saleAge = Date.now() - new Date(sale.createdAt).getTime();
     const FINALIZE_WINDOW = 90_000; // 90 seconds for Aleo block finality
     if (saleAge > FINALIZE_WINDOW) {
       console.log('[Sales] Timing heuristic: sale', listingId, 'is', Math.round(saleAge / 1000), 's old, assuming active');
-      res.json({ active: true, onChainSaleId: saleIdToCheck, verified: 'timing' });
+      res.json({ active: true, tagCommitment: sale.tagCommitment, verified: 'timing' });
       return;
     }
 
-    res.json({ active: false, onChainSaleId: saleIdToCheck, reason: 'not_verified' });
+    res.json({ active: false, tagCommitment: sale.tagCommitment, reason: 'not_verified' });
   } catch (err) {
     console.error('[Sales] Check on-chain error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ============================================================
-// PATCH /sales/update-create-tx — Update shield_ txId with real at1... txId
-// Called by seller when wallet adapter confirms the transaction
-// ============================================================
-router.patch('/update-create-tx', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const { listingId, createSaleTxId } = req.body;
-    if (!listingId || !createSaleTxId) {
-      res.status(400).json({ error: 'listingId and createSaleTxId are required' });
-      return;
-    }
-
-    const sellerHash = crypto.createHash('sha256').update(req.userAddress!).digest('hex');
-    const sale = db.getSaleByListingId(listingId);
-
-    if (!sale) {
-      res.status(404).json({ error: 'No sale found for this listing' });
-      return;
-    }
-    if (sale.sellerHash !== sellerHash) {
-      res.status(403).json({ error: 'Only the seller can update the sale' });
-      return;
-    }
-
-    // Only update if replacing a non-at1 ID with a real at1 ID
-    if (sale.createSaleTxId.startsWith('at1')) {
-      res.json({ success: true, updated: false, message: 'Already has confirmed tx ID' });
-      return;
-    }
-
-    sale.createSaleTxId = createSaleTxId;
-    sale.updatedAt = new Date().toISOString();
-    db.setSale(sale);
-
-    console.log('[Sales] Updated createSaleTxId for listing', listingId, ':', createSaleTxId.slice(0, 20));
-    res.json({ success: true, updated: true });
-  } catch (err) {
-    console.error('[Sales] Update create-tx error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -711,15 +559,16 @@ router.get('/:saleId/status', async (req, res): Promise<void> => {
       return;
     }
 
-    // Optionally verify on-chain state
+    // Verify on-chain state using tag_commitment
     let onChainActive = false;
     let onChainPaid = false;
     try {
-      const saleCommitment = req.query.saleCommitment as string;
-      if (saleCommitment) {
+      if (sale.tagCommitment) {
+        const commitmentKey = sale.tagCommitment.endsWith('field')
+          ? sale.tagCommitment : `${sale.tagCommitment}field`;
         const [activeVal, paidVal] = await Promise.all([
-          getMappingValue(PROGRAM_ID, 'sale_active', saleCommitment),
-          getMappingValue(PROGRAM_ID, 'sale_paid', saleCommitment),
+          getMappingValue(PROGRAM_ID, 'sale_active', commitmentKey),
+          getMappingValue(PROGRAM_ID, 'sale_paid', commitmentKey),
         ]);
         onChainActive = activeVal !== null && String(activeVal).includes('true');
         onChainPaid = paidVal !== null && String(paidVal).includes('true');
@@ -730,7 +579,6 @@ router.get('/:saleId/status', async (req, res): Promise<void> => {
 
     res.json({
       saleId: sale.saleId,
-      onChainSaleId: sale.onChainSaleId,
       status: sale.status,
       price: sale.price,
       currency: sale.currency,

@@ -586,7 +586,7 @@ export const Home: FC = () => {
                 <TagIcon size={20} />
               </div>
               <div>
-                <h3 className="font-heading text-lg font-semibold text-white">onyxpriv_v6.aleo</h3>
+                <h3 className="font-heading text-lg font-semibold text-white">onyxpriv_v7.aleo</h3>
                 <p className="font-mono text-xs text-champagne-500/60">525 statements • Core Logic</p>
               </div>
             </div>
@@ -604,7 +604,7 @@ export const Home: FC = () => {
                 <CurrencySvg className="h-5 w-5" />
               </div>
               <div>
-                <h3 className="font-heading text-lg font-semibold text-white">onyxpriv_v6_pay.aleo</h3>
+                <h3 className="font-heading text-lg font-semibold text-white">onyxpriv_v7_pay.aleo</h3>
                 <p className="font-mono text-xs text-blue-400/60">170 statements • Payments</p>
               </div>
             </div>

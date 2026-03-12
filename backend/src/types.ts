@@ -57,19 +57,17 @@ export type SaleStatus = 'pending_payment' | 'paid' | 'completing' | 'completed'
 export interface Sale {
   id: string;                      // UUID
   saleId: string;                  // Backend tracking ID
-  onChainSaleId: string;           // On-chain sale_id field from SaleRecord (passed to buy_sale_*)
   listingId: string;               // Reference to Listing
   sellerAddress: string;           // Seller's Aleo address (needed for complete_sale)
   sellerHash: string;              // SHA-256(seller_address)
   buyerHash?: string;              // SHA-256(buyer_address) — set on purchase
   buyerAddress?: string;           // Buyer's Aleo address — set on purchase, needed for complete_sale
   tagHash: string;                 // Raw tag_hash
-  tagCommitment: string;           // BHP256(tag_hash)
+  tagCommitment: string;           // BHP256(tag_hash) — used as on-chain mapping key
   price: number;                   // In microcredits or micro-USDCx
   currency: 'aleo' | 'usdcx' | 'usad';     // Payment type
   status: SaleStatus;
   createSaleTxId: string;          // TX from create_sale
-  saleSalt?: string;               // Salt used in create_sale (for pending resolution)
   buySaleTxId?: string;            // TX from buy_sale_escrow/usdcx
   completeSaleTxId?: string;       // TX from complete_sale_escrow/usdcx
   cancelTxId?: string;             // TX from cancel_sale

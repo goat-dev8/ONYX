@@ -1,7 +1,7 @@
 {
-  "program": "onyxpriv_v6.aleo",
-  "version": "6.0.0",
-  "description": "ONYX v6 \u2014 Private Product Passports with Bounty Claims & Triple Payment on Aleo",
+  "program": "onyxpriv_v7.aleo",
+  "version": "7.0.0",
+  "description": "ONYX v7 — Private Product Passports with Simplified Sale Keys on Aleo",
   "license": "MIT",
   "leo": "3.4.0",
   "dependencies": [
