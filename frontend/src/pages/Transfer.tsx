@@ -177,7 +177,7 @@ export const Transfer: FC = () => {
             Sign a message with your wallet to verify ownership
           </p>
           <Button onClick={handleAuth} loading={loading} size="lg">
-            Sign to Authenticate
+            {loading ? 'Check Your Wallet Popup...' : 'Sign to Authenticate'}
           </Button>
         </motion.div>
       </div>

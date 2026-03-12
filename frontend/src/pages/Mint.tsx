@@ -204,7 +204,7 @@ export const Mint: FC = () => {
             Sign a message with your wallet to verify ownership
           </p>
           <Button onClick={handleAuth} loading={loading} size="lg">
-            Sign to Authenticate
+            {loading ? 'Check Your Wallet Popup...' : 'Sign to Authenticate'}
           </Button>
         </motion.div>
       </div>
@@ -223,19 +223,27 @@ export const Mint: FC = () => {
         const result = await api.registerBrand(brandName.trim());
         if (result.success) {
           // Register this brand on-chain (v3: self-registration, any user can call)
-          toast.loading('Registering brand on-chain...', { id: 'brand-chain' });
+          let brandTxId: string | null = null;
           try {
-            await executeRegisterBrand();
+            brandTxId = await executeRegisterBrand();
           } catch (chainErr) {
             console.warn('[Mint] On-chain brand registration failed:', chainErr);
             // Try v2 fallback (admin-only authorize_brand)
             try {
-              await executeAuthorizeBrand(walletAddress!);
+              brandTxId = await executeAuthorizeBrand(walletAddress!);
             } catch (v2Err) {
               console.warn('[Mint] v2 authorize_brand also failed (expected for non-admin):', v2Err);
             }
           }
-          toast.dismiss('brand-chain');
+
+          // Track brand registration as pending TX
+          if (brandTxId) {
+            addPendingTx({
+              id: brandTxId,
+              type: 'register_brand',
+              meta: { brandName: brandName.trim() },
+            });
+          }
 
           // Update user state to reflect brand status
           setUser({
@@ -306,10 +314,16 @@ export const Mint: FC = () => {
             onClick={handleRegisterBrand} 
             loading={registering} 
             size="lg"
-            disabled={!brandName.trim()}
+            disabled={!brandName.trim() || registering}
           >
-            Register Brand
+            {registering ? 'Registering — Check Wallet...' : 'Register Brand'}
           </Button>
+          
+          {registering && (
+            <p className="mt-4 text-sm text-champagne-400/70 animate-pulse">
+              Please approve the transaction in your wallet popup
+            </p>
+          )}
           
           <p className="mt-6 text-sm text-white/30">
             Connected as: {formatAddress(walletAddress || '', 8)}

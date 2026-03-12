@@ -91,20 +91,26 @@ export const Purchase: FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // Auto-refresh when sale is pending — poll every 10s until onChainSaleId is set
+  // Auto-refresh when sale is pending — poll every 5s until onChainSaleId is set
   useEffect(() => {
     if (!salePending) return;
-    const interval = setInterval(async () => {
+    // Poll immediately on first run, then every 5s
+    let cancelled = false;
+    const doCheck = async () => {
+      if (cancelled) return;
       try {
         const saleLookup = await api.getSaleByListing(listingId);
         if (saleLookup.found && saleLookup.sale?.onChainSaleId && !saleLookup.sale.onChainSaleId.startsWith('pending_')) {
           setOnChainSaleId(saleLookup.sale.onChainSaleId);
           if (saleLookup.sale.sellerAddress) setSellerAddress(saleLookup.sale.sellerAddress);
           setSalePending(false);
+          toast.success('Sale is ready — you can now purchase!');
         }
       } catch { /* retry silently */ }
-    }, 10000);
-    return () => clearInterval(interval);
+    };
+    doCheck(); // immediate first check
+    const interval = setInterval(doCheck, 5000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, [salePending, listingId]);
 
   // Resolve real on-chain txId from pending TX store (Shield wallet returns shield_... IDs)
@@ -406,10 +412,19 @@ export const Purchase: FC = () => {
                 </button>
               </div>
             ) : salePending ? (
-              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 text-center space-y-2">
-                <LoadingSpinner size={24} className="mx-auto text-blue-400" />
-                <p className="text-sm text-blue-400/80">Sale confirming on-chain...</p>
-                <p className="text-xs text-white/40">The seller&apos;s transaction is being confirmed. This page will auto-refresh when ready.</p>
+              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-5 text-center space-y-3">
+                <LoadingSpinner size={28} className="mx-auto text-blue-400" />
+                <p className="text-sm font-medium text-blue-400/80">Sale confirming on-chain...</p>
+                <p className="text-xs text-white/40 leading-relaxed">
+                  The seller&apos;s sale transaction is being confirmed on the Aleo network.
+                  This usually takes 1-3 minutes. The page auto-checks every 5 seconds.
+                </p>
+                <button
+                  onClick={() => fetchData()}
+                  className="mt-1 rounded-lg bg-blue-500/10 px-4 py-1.5 text-xs font-medium text-blue-400/70 hover:bg-blue-500/20 hover:text-blue-400 transition-colors"
+                >
+                  Check Now
+                </button>
               </div>
             ) : !saleId || !onChainSaleId || !sellerAddress ? (
               <p className="text-sm text-amber-400/70">Invalid sale link. Please go back to the marketplace.</p>

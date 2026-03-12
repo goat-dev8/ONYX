@@ -78,7 +78,6 @@ export const Vault: FC = () => {
     try {
       // First fetch wallet records (they contain the actual on-chain artifacts)
       const walletRecords = await fetchRecords();
-      console.log('[Vault] Wallet records:', walletRecords);
       
       // Parse wallet records into artifacts
       if (walletRecords.length > 0) {
@@ -210,20 +209,21 @@ export const Vault: FC = () => {
           }
         }
         
-        // Check stolen status for each artifact from on-chain mapping
-        // Skip check if tagHash is empty to avoid 404 errors
-        const artifactsWithStolenStatus = await Promise.all(
-          walletArtifacts.map(async (artifact) => {
-            if (!artifact.tagHash) {
-              return { ...artifact, stolen: false };
-            }
-            const isStolen = await checkStolenStatus(artifact.tagHash);
-            return { ...artifact, stolen: isStolen };
-          })
-        );
+        // Show artifacts immediately — check stolen status in background to avoid blocking UI
+        setArtifacts(walletArtifacts);
         
-        console.log('[Vault] Parsed wallet artifacts with stolen status:', artifactsWithStolenStatus);
-        setArtifacts(artifactsWithStolenStatus);
+        // Check stolen status asynchronously — update in-place when results come back
+        if (walletArtifacts.some(a => !!a.tagHash)) {
+          Promise.all(
+            walletArtifacts.map(async (artifact) => {
+              if (!artifact.tagHash) return { ...artifact, stolen: false };
+              const isStolen = await checkStolenStatus(artifact.tagHash);
+              return { ...artifact, stolen: isStolen };
+            })
+          ).then(artifactsWithStolenStatus => {
+            setArtifacts(artifactsWithStolenStatus);
+          }).catch(() => { /* non-critical */ });
+        }
       } else {
         // Fallback to backend artifacts if no wallet records
         try {
@@ -273,6 +273,18 @@ export const Vault: FC = () => {
       if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
     };
   }, [isAuthenticated, walletAddress, loadArtifacts]);
+
+  // Auto-refresh faster (every 10s) when there are pending create_sale TXs
+  // This ensures SaleRecords are auto-registered quickly so buyers can purchase
+  const pendingTxList = usePendingTxStore(s => s.transactions);
+  const hasPendingCreateSale = pendingTxList.some(t => t.type === 'create_sale' && t.status === 'pending');
+  useEffect(() => {
+    if (!hasPendingCreateSale || !isAuthenticated || !walletAddress) return;
+    const fastInterval = setInterval(() => {
+      loadArtifacts(true);
+    }, 10_000);
+    return () => clearInterval(fastInterval);
+  }, [hasPendingCreateSale, isAuthenticated, walletAddress, loadArtifacts]);
 
   const handleTransfer = async () => {
     if (!selectedArtifact || !transferAddress) return;
@@ -664,7 +676,7 @@ export const Vault: FC = () => {
             Sign a message with your wallet to verify ownership
           </p>
           <Button onClick={handleAuth} loading={loading} size="lg">
-            Sign to Authenticate
+            {loading ? 'Check Your Wallet Popup...' : 'Sign to Authenticate'}
           </Button>
         </motion.div>
       </div>
@@ -753,7 +765,8 @@ export const Vault: FC = () => {
           <div className="flex items-center justify-center py-20">
             <div className="text-center space-y-4">
               <LoadingSpinner size={48} className="mx-auto text-champagne-400" />
-              <p className="text-sm text-white/30 animate-pulse">Decrypting wallet records...</p>
+              <p className="text-sm text-white/40">Syncing wallet records...</p>
+              <p className="text-xs text-white/25">This may take a moment on first load</p>
             </div>
           </div>
         ) : artifacts.length === 0 && !hasPendingOfType('mint') && saleRecords.length === 0 ? (
@@ -1302,7 +1315,7 @@ export const Vault: FC = () => {
               loading={listingLoading}
               className="flex-1"
             >
-              List for Sale
+              {listingLoading ? 'Approve in Wallet...' : 'List for Sale'}
             </Button>
           </div>
         </div>

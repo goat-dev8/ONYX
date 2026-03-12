@@ -49,7 +49,12 @@ export const Button: FC<ButtonProps> = ({
         disabled ? 'cursor-not-allowed opacity-50' : ''
       } ${className}`}
     >
-      {loading ? <LoadingSpinner size={18} /> : children}
+      {loading ? (
+        <>
+          <LoadingSpinner size={18} />
+          <span className="opacity-70">{children}</span>
+        </>
+      ) : children}
     </button>
   );
 };

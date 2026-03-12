@@ -13,6 +13,9 @@ import {
 import { useUserStore } from '../stores/userStore';
 import { usePendingTxStore } from '../stores/pendingTxStore';
 
+// Track if any wallet popup toast is active (prevents stacking)
+let _walletPopupToastActive = false;
+
 // Shared wallet executor type
 interface WalletExecutor {
   executeTransaction: (options: {
@@ -272,6 +275,7 @@ function extractRecordField(record: Record<string, unknown>, fieldName: string):
 export function useOnyxWallet() {
   const wallet = useWallet();
   const [loading, setLoading] = useState(false);
+  const [walletBusy, setWalletBusy] = useState(false);
   const { setUser, logout } = useUserStore();
 
   const walletAddress = wallet.connected
@@ -391,15 +395,30 @@ export function useOnyxWallet() {
     return typeof w.executeTransaction === 'function' ? w : null;
   }, [wallet]);
 
+  // Show prominent wallet popup toast + set walletBusy state
+  const showWalletPopupToast = useCallback((toastId: string, message: string) => {
+    setWalletBusy(true);
+    if (!_walletPopupToastActive) {
+      _walletPopupToastActive = true;
+    }
+    toast(message, { id: toastId, icon: '🔐', duration: 60000 });
+  }, []);
+
+  const dismissWalletPopupToast = useCallback((toastId: string) => {
+    toast.dismiss(toastId);
+    setWalletBusy(false);
+    _walletPopupToastActive = false;
+  }, []);
+
   const authenticate = useCallback(async (): Promise<boolean> => {
     if (!wallet.connected || !walletAddress) {
       toast.error('Please connect your wallet first');
       return false;
     }
 
-    // If another auth call is already running, wait for it instead of
-    // starting a second one (which would overwrite the nonce).
+    // If another auth call is already running, show feedback and wait
     if (_authInProgress) {
+      toast('Check your wallet popup to sign...', { id: 'auth-waiting', icon: '🔐', duration: 4000 });
       return _authInProgress;
     }
 
@@ -413,7 +432,7 @@ export function useOnyxWallet() {
         throw new Error('Wallet does not support message signing');
       }
 
-      toast.loading('Please sign the message in your wallet...', { id: 'sign' });
+      toast('Please sign the message in your wallet popup...', { id: 'sign', icon: '✍️', duration: 30000 });
       const messageBytes = new TextEncoder().encode(message);
       const signResult = await walletAny.signMessage(messageBytes);
       toast.dismiss('sign');
@@ -476,7 +495,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Registering brand on-chain...', { id: 'tx-register-brand' });
+        showWalletPopupToast('tx-register-brand', 'Approve brand registration in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -486,22 +505,22 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-register-brand');
+        dismissWalletPopupToast('tx-register-brand');
 
         if (response?.transactionId) {
-          toast.success('Brand registered on-chain!');
+          toast.success('Brand registered on-chain! Transaction submitted.');
           return response.transactionId;
         }
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-register-brand');
+        dismissWalletPopupToast('tx-register-brand');
         console.error('[OnyxWallet] Register brand error:', err);
         toast.error(err instanceof Error ? err.message : 'Brand registration failed');
         return null;
       }
     },
-    [getExecutor]
+    [getExecutor, showWalletPopupToast, dismissWalletPopupToast]
   );
 
   // Legacy: authorize brand (v2 admin-only — kept for backward compatibility)
@@ -514,7 +533,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Authorizing brand on-chain...', { id: 'tx-auth-brand' });
+        showWalletPopupToast('tx-auth-brand', 'Approve brand authorization in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -524,7 +543,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-auth-brand');
+        dismissWalletPopupToast('tx-auth-brand');
 
         if (response?.transactionId) {
           toast.success('Brand authorized on-chain!');
@@ -533,7 +552,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-auth-brand');
+        dismissWalletPopupToast('tx-auth-brand');
         console.error('[OnyxWallet] Authorize brand error:', err);
         toast.error(err instanceof Error ? err.message : 'Brand authorization failed');
         return null;
@@ -556,7 +575,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Waiting for wallet confirmation...', { id: 'tx-mint' });
+        showWalletPopupToast('tx-mint', 'Approve minting in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -571,7 +590,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-mint');
+        dismissWalletPopupToast('tx-mint');
 
         if (response?.transactionId) {
           toast.success('Mint transaction submitted!');
@@ -580,7 +599,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-mint');
+        dismissWalletPopupToast('tx-mint');
         console.error('[OnyxWallet] Mint error:', err);
         toast.error(err instanceof Error ? err.message : 'Mint failed');
         return null;
@@ -607,7 +626,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Waiting for wallet confirmation...', { id: 'tx-transfer' });
+        showWalletPopupToast('tx-transfer', 'Approve transfer in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -617,7 +636,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-transfer');
+        dismissWalletPopupToast('tx-transfer');
 
         if (response?.transactionId) {
           toast.success('Transfer submitted!');
@@ -626,7 +645,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-transfer');
+        dismissWalletPopupToast('tx-transfer');
         console.error('[OnyxWallet] Transfer error:', err);
         toast.error(err instanceof Error ? err.message : 'Transfer failed');
         return null;
@@ -652,7 +671,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Waiting for wallet confirmation...', { id: 'tx-stolen' });
+        showWalletPopupToast('tx-stolen', 'Approve stolen report in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -662,7 +681,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-stolen');
+        dismissWalletPopupToast('tx-stolen');
 
         if (response?.transactionId) {
           toast.success('Report submitted!');
@@ -671,7 +690,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-stolen');
+        dismissWalletPopupToast('tx-stolen');
         console.error('[OnyxWallet] Report stolen error:', err);
         toast.error(err instanceof Error ? err.message : 'Report failed');
         return null;
@@ -706,7 +725,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Generating private proof...', { id: 'tx-prove' });
+        showWalletPopupToast('tx-prove', 'Approve proof generation in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -716,7 +735,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-prove');
+        dismissWalletPopupToast('tx-prove');
 
         if (response?.transactionId) {
           const proofToken = `onyx_proof_${response.transactionId.slice(0, 20)}`;
@@ -726,7 +745,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-prove');
+        dismissWalletPopupToast('tx-prove');
         console.error('[OnyxWallet] Prove error:', err);
         toast.error(err instanceof Error ? err.message : 'Proof generation failed');
         return null;
@@ -755,17 +774,17 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Finding credits for bounty deposit...', { id: 'tx-bounty' });
+        showWalletPopupToast('tx-bounty', 'Finding credits for bounty...');
 
         const creditsInput = await findCreditsRecord(executor, bountyAmount);
 
         if (!creditsInput) {
-          toast.dismiss('tx-bounty');
+          dismissWalletPopupToast('tx-bounty');
           toast.error('No private credits record found. Please shield credits first.');
           return null;
         }
 
-        toast.loading('Reporting stolen with bounty...', { id: 'tx-bounty' });
+        showWalletPopupToast('tx-bounty', 'Approve stolen report with bounty in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -775,7 +794,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-bounty');
+        dismissWalletPopupToast('tx-bounty');
 
         if (response?.transactionId) {
           toast.success('Stolen report filed with bounty!');
@@ -784,7 +803,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-bounty');
+        dismissWalletPopupToast('tx-bounty');
         console.error('[OnyxWallet] Report stolen with bounty error:', err);
         toast.error(err instanceof Error ? err.message : 'Bounty report failed');
         return null;
@@ -809,12 +828,12 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Finding credits for verification payment...', { id: 'tx-pay-verify' });
+        showWalletPopupToast('tx-pay-verify', 'Finding credits for verification...');
 
         const creditsInput = await findCreditsRecord(executor, amount + DEFAULT_FEE);
 
         if (!creditsInput) {
-          toast.dismiss('tx-pay-verify');
+          dismissWalletPopupToast('tx-pay-verify');
           toast.error('No private credits record found. Please shield credits first.');
           return null;
         }
@@ -823,7 +842,7 @@ export function useOnyxWallet() {
         const salt = saltOverride || generateSalt();
         const paymentSecret = generateSalt(); // Random field for replay prevention
 
-        toast.loading('Submitting verification payment...', { id: 'tx-pay-verify' });
+        showWalletPopupToast('tx-pay-verify', 'Approve verification payment in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -840,7 +859,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-pay-verify');
+        dismissWalletPopupToast('tx-pay-verify');
 
         if (response?.transactionId) {
           toast.success('Verification payment sent!');
@@ -850,7 +869,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-pay-verify');
+        dismissWalletPopupToast('tx-pay-verify');
         console.error('[OnyxWallet] Pay verification error:', err);
         toast.error(err instanceof Error ? err.message : 'Verification payment failed');
         return null;
@@ -876,11 +895,11 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Finding USDCx token for payment...', { id: 'tx-pay-usdcx' });
+        showWalletPopupToast('tx-pay-usdcx', 'Finding USDCx tokens...');
 
         // Fetch USDCx token records
         if (!executor.requestRecords) {
-          toast.dismiss('tx-pay-usdcx');
+          dismissWalletPopupToast('tx-pay-usdcx');
           toast.error('Wallet does not support record requests');
           return null;
         }
@@ -893,7 +912,7 @@ export function useOnyxWallet() {
         );
 
         if (!tokenRecord) {
-          toast.dismiss('tx-pay-usdcx');
+          dismissWalletPopupToast('tx-pay-usdcx');
           toast.error(`No USDCx record with sufficient balance (need ${amount} microUSDCx)`);
           return null;
         }
@@ -906,13 +925,13 @@ export function useOnyxWallet() {
           || tokenRec.recordCiphertext;
 
         if (!tokenInput) {
-          toast.dismiss('tx-pay-usdcx');
+          dismissWalletPopupToast('tx-pay-usdcx');
           toast.error('Cannot extract USDCx token record');
           return null;
         }
 
         // Generate freeze-list compliance proofs
-        toast.loading('Generating freeze-list compliance proofs...', { id: 'tx-pay-usdcx' });
+        showWalletPopupToast('tx-pay-usdcx', 'Generating compliance proofs...');
 
         const freezeCount = await getFreezeListCount();
         const buyerProof = await generateFreezeListProof(
@@ -926,7 +945,7 @@ export function useOnyxWallet() {
         const paymentSecret = generateSalt();
 
         // Single cross-program call — contract handles USDCx transfer internally
-        toast.loading('Processing USDCx payment...', { id: 'tx-pay-usdcx' });
+        showWalletPopupToast('tx-pay-usdcx', 'Approve USDCx payment in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.payProgramId,
@@ -944,7 +963,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-pay-usdcx');
+        dismissWalletPopupToast('tx-pay-usdcx');
 
         if (response?.transactionId) {
           toast.success('USDCx verification payment complete!');
@@ -954,7 +973,7 @@ export function useOnyxWallet() {
 
         throw new Error('USDCx payment failed');
       } catch (err) {
-        toast.dismiss('tx-pay-usdcx');
+        dismissWalletPopupToast('tx-pay-usdcx');
         console.error('[OnyxWallet] USDCx pay verification error:', err);
         toast.error(err instanceof Error ? err.message : 'USDCx payment failed');
         return null;
@@ -974,11 +993,11 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Converting public credits to private...', { id: 'tx-convert' });
+        showWalletPopupToast('tx-convert', 'Approve conversion in your wallet popup...');
 
         const recipient = walletAddress;
         if (!recipient) {
-          toast.dismiss('tx-convert');
+          dismissWalletPopupToast('tx-convert');
           toast.error('Wallet address not available');
           return null;
         }
@@ -991,7 +1010,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-convert');
+        dismissWalletPopupToast('tx-convert');
 
         if (response?.transactionId) {
           toast.success('Credits converted to private! They will be available after confirmation.');
@@ -1000,7 +1019,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-convert');
+        dismissWalletPopupToast('tx-convert');
         console.error('[OnyxWallet] Convert public to private error:', err);
         toast.error(err instanceof Error ? err.message : 'Conversion failed');
         return null;
@@ -1033,7 +1052,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Creating sale — locking artifact...', { id: 'tx-create-sale' });
+        showWalletPopupToast('tx-create-sale', 'Approve sale creation in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -1048,7 +1067,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-create-sale');
+        dismissWalletPopupToast('tx-create-sale');
 
         if (response?.transactionId) {
           toast.success('Sale created! Artifact locked for sale.');
@@ -1060,7 +1079,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-create-sale');
+        dismissWalletPopupToast('tx-create-sale');
         console.error('[OnyxWallet] Create sale error:', err);
         toast.error(err instanceof Error ? err.message : 'Sale creation failed');
         return null;
@@ -1083,16 +1102,16 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Finding credits for purchase...', { id: 'tx-buy-sale' });
+        showWalletPopupToast('tx-buy-sale', 'Finding credits for purchase...');
 
         const creditsRecordInput = await findCreditsRecord(executor, amount);
         if (!creditsRecordInput) {
-          toast.dismiss('tx-buy-sale');
+          dismissWalletPopupToast('tx-buy-sale');
           toast.error(`Insufficient private credits. Need ${(amount / 1_000_000).toFixed(2)} ALEO. Shield more credits first.`);
           return null;
         }
 
-        toast.loading('Buying item — depositing escrow...', { id: 'tx-buy-sale' });
+        showWalletPopupToast('tx-buy-sale', 'Approve purchase in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -1108,7 +1127,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-buy-sale');
+        dismissWalletPopupToast('tx-buy-sale');
 
         if (response?.transactionId) {
           toast.success('Purchase payment deposited!');
@@ -1117,7 +1136,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-buy-sale');
+        dismissWalletPopupToast('tx-buy-sale');
         console.error('[OnyxWallet] Buy sale escrow error:', err);
         toast.error(err instanceof Error ? err.message : 'Purchase payment failed');
         return null;
@@ -1140,10 +1159,10 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Finding USDCx token for purchase...', { id: 'tx-buy-sale-usdcx' });
+        showWalletPopupToast('tx-buy-sale-usdcx', 'Finding USDCx tokens...');
 
         if (!executor.requestRecords) {
-          toast.dismiss('tx-buy-sale-usdcx');
+          dismissWalletPopupToast('tx-buy-sale-usdcx');
           toast.error('Wallet does not support record requests');
           return null;
         }
@@ -1152,7 +1171,7 @@ export function useOnyxWallet() {
         const tokenRecord = await findSuitableUsdcxRecord(usdcxRecords, amount, executor.decrypt);
 
         if (!tokenRecord) {
-          toast.dismiss('tx-buy-sale-usdcx');
+          dismissWalletPopupToast('tx-buy-sale-usdcx');
           toast.error(`No USDCx record with sufficient balance (need ${amount} microUSDCx)`);
           return null;
         }
@@ -1161,18 +1180,18 @@ export function useOnyxWallet() {
         const tokenInput = tokenRec.recordPlaintext || tokenRec.plaintext || (tokenRec as { id?: string }).id || tokenRec.recordCiphertext;
 
         if (!tokenInput) {
-          toast.dismiss('tx-buy-sale-usdcx');
+          dismissWalletPopupToast('tx-buy-sale-usdcx');
           toast.error('Cannot extract USDCx token record');
           return null;
         }
 
-        toast.loading('Generating compliance proofs...', { id: 'tx-buy-sale-usdcx' });
+        showWalletPopupToast('tx-buy-sale-usdcx', 'Generating compliance proofs...');
 
         const freezeCount = await getFreezeListCount();
         const buyerProof = await generateFreezeListProof(walletAddress || '', freezeCount);
         const sellerProof = await generateFreezeListProof(sellerAddress, freezeCount);
 
-        toast.loading('Processing USDCx purchase...', { id: 'tx-buy-sale-usdcx' });
+        showWalletPopupToast('tx-buy-sale-usdcx', 'Approve USDCx purchase in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.payProgramId,
@@ -1189,7 +1208,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-buy-sale-usdcx');
+        dismissWalletPopupToast('tx-buy-sale-usdcx');
 
         if (response?.transactionId) {
           toast.success('USDCx purchase payment complete!');
@@ -1198,7 +1217,7 @@ export function useOnyxWallet() {
 
         throw new Error('USDCx purchase failed');
       } catch (err) {
-        toast.dismiss('tx-buy-sale-usdcx');
+        dismissWalletPopupToast('tx-buy-sale-usdcx');
         console.error('[OnyxWallet] Buy sale USDCx error:', err);
         toast.error(err instanceof Error ? err.message : 'USDCx purchase failed');
         return null;
@@ -1225,7 +1244,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Completing sale — delivering artifact + claiming credits...', { id: 'tx-complete-sale' });
+        showWalletPopupToast('tx-complete-sale', 'Approve sale completion in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -1235,7 +1254,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-complete-sale');
+        dismissWalletPopupToast('tx-complete-sale');
 
         if (response?.transactionId) {
           toast.success('Sale completed! Artifact delivered & credits claimed.');
@@ -1244,7 +1263,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-complete-sale');
+        dismissWalletPopupToast('tx-complete-sale');
         console.error('[OnyxWallet] Complete sale escrow error:', err);
         toast.error(err instanceof Error ? err.message : 'Sale completion failed');
         return null;
@@ -1271,7 +1290,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Completing USDCx sale — delivering artifact...', { id: 'tx-complete-sale-usdcx' });
+        showWalletPopupToast('tx-complete-sale-usdcx', 'Approve sale completion in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -1281,7 +1300,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-complete-sale-usdcx');
+        dismissWalletPopupToast('tx-complete-sale-usdcx');
 
         if (response?.transactionId) {
           toast.success('USDCx sale completed! Artifact delivered.');
@@ -1290,7 +1309,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-complete-sale-usdcx');
+        dismissWalletPopupToast('tx-complete-sale-usdcx');
         console.error('[OnyxWallet] Complete sale USDCx error:', err);
         toast.error(err instanceof Error ? err.message : 'USDCx sale completion failed');
         return null;
@@ -1316,7 +1335,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Cancelling sale — returning artifact...', { id: 'tx-cancel-sale' });
+        showWalletPopupToast('tx-cancel-sale', 'Approve sale cancellation in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -1326,7 +1345,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-cancel-sale');
+        dismissWalletPopupToast('tx-cancel-sale');
 
         if (response?.transactionId) {
           toast.success('Sale cancelled! Artifact returned to you.');
@@ -1335,7 +1354,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-cancel-sale');
+        dismissWalletPopupToast('tx-cancel-sale');
         console.error('[OnyxWallet] Cancel sale error:', err);
         toast.error(err instanceof Error ? err.message : 'Sale cancellation failed');
         return null;
@@ -1361,7 +1380,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Refunding purchase — reclaiming credits...', { id: 'tx-refund-sale' });
+        showWalletPopupToast('tx-refund-sale', 'Approve refund in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -1371,7 +1390,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-refund-sale');
+        dismissWalletPopupToast('tx-refund-sale');
 
         if (response?.transactionId) {
           toast.success('Purchase refunded! Credits returned.');
@@ -1380,7 +1399,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-refund-sale');
+        dismissWalletPopupToast('tx-refund-sale');
         console.error('[OnyxWallet] Refund sale escrow error:', err);
         toast.error(err instanceof Error ? err.message : 'Refund failed');
         return null;
@@ -1406,7 +1425,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Refunding USDCx purchase...', { id: 'tx-refund-sale-usdcx' });
+        showWalletPopupToast('tx-refund-sale-usdcx', 'Approve USDCx refund in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -1416,7 +1435,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-refund-sale-usdcx');
+        dismissWalletPopupToast('tx-refund-sale-usdcx');
 
         if (response?.transactionId) {
           toast.success('USDCx purchase refund processed!');
@@ -1425,7 +1444,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-refund-sale-usdcx');
+        dismissWalletPopupToast('tx-refund-sale-usdcx');
         console.error('[OnyxWallet] Refund sale USDCx error:', err);
         toast.error(err instanceof Error ? err.message : 'USDCx refund failed');
         return null;
@@ -1454,7 +1473,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Claiming bounty for finder...', { id: 'tx-claim-bounty' });
+        showWalletPopupToast('tx-claim-bounty', 'Approve bounty claim in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -1464,7 +1483,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-claim-bounty');
+        dismissWalletPopupToast('tx-claim-bounty');
 
         if (response?.transactionId) {
           toast.success('Bounty claimed successfully!');
@@ -1473,7 +1492,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-claim-bounty');
+        dismissWalletPopupToast('tx-claim-bounty');
         console.error('[OnyxWallet] Claim bounty error:', err);
         toast.error(err instanceof Error ? err.message : 'Bounty claim failed');
         return null;
@@ -1500,7 +1519,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Recovering stolen item & claiming bounty...', { id: 'tx-claim-bounty-recover' });
+        showWalletPopupToast('tx-claim-bounty-recover', 'Approve bounty recovery in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -1510,7 +1529,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-claim-bounty-recover');
+        dismissWalletPopupToast('tx-claim-bounty-recover');
 
         if (response?.transactionId) {
           toast.success('Stolen item recovered & bounty claimed!');
@@ -1519,7 +1538,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-claim-bounty-recover');
+        dismissWalletPopupToast('tx-claim-bounty-recover');
         console.error('[OnyxWallet] Claim bounty recover error:', err);
         toast.error(err instanceof Error ? err.message : 'Bounty recovery failed');
         return null;
@@ -1545,25 +1564,25 @@ export function useOnyxWallet() {
 
       try {
         const USAD_PROGRAM_ID = 'test_usad_stablecoin.aleo';
-        toast.loading('Finding USAD token record...', { id: 'tx-verify-usad' });
+        showWalletPopupToast('tx-verify-usad', 'Finding USAD tokens...');
 
         const usadRecords = await (executor as WalletExecutor).requestRecords?.(USAD_PROGRAM_ID, true);
         if (!usadRecords || !Array.isArray(usadRecords) || usadRecords.length === 0) {
-          toast.dismiss('tx-verify-usad');
+          dismissWalletPopupToast('tx-verify-usad');
           toast.error('No USAD tokens found. Please acquire USAD first.');
           return null;
         }
 
         const usadRecord = (usadRecords as Record<string, unknown>[]).find((r) => !r.spent);
         if (!usadRecord) {
-          toast.dismiss('tx-verify-usad');
+          dismissWalletPopupToast('tx-verify-usad');
           toast.error('No unspent USAD tokens available.');
           return null;
         }
 
         const usadInput = getRecordInput({ _raw: usadRecord } as { _plaintext?: string; _raw?: Record<string, unknown> });
         if (!usadInput) {
-          toast.dismiss('tx-verify-usad');
+          dismissWalletPopupToast('tx-verify-usad');
           toast.error('USAD record not available.');
           return null;
         }
@@ -1574,7 +1593,7 @@ export function useOnyxWallet() {
         const proof = await generateFreezeListProof(walletAddress || '', freezeListCount);
         const proofStr = `[${proof}, ${proof}]`;
 
-        toast.loading('Paying verification with USAD...', { id: 'tx-verify-usad' });
+        showWalletPopupToast('tx-verify-usad', 'Approve USAD payment in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.payProgramId,
@@ -1584,7 +1603,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-verify-usad');
+        dismissWalletPopupToast('tx-verify-usad');
 
         if (response?.transactionId) {
           toast.success('USAD verification payment sent!');
@@ -1593,7 +1612,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-verify-usad');
+        dismissWalletPopupToast('tx-verify-usad');
         console.error('[OnyxWallet] Pay verification USAD error:', err);
         toast.error(err instanceof Error ? err.message : 'USAD verification payment failed');
         return null;
@@ -1619,25 +1638,25 @@ export function useOnyxWallet() {
 
       try {
         const USAD_PROGRAM_ID = 'test_usad_stablecoin.aleo';
-        toast.loading('Finding USAD token for purchase...', { id: 'tx-buy-sale-usad' });
+        showWalletPopupToast('tx-buy-sale-usad', 'Finding USAD tokens...');
 
         const usadRecords = await (executor as WalletExecutor).requestRecords?.(USAD_PROGRAM_ID, true);
         if (!usadRecords || !Array.isArray(usadRecords) || usadRecords.length === 0) {
-          toast.dismiss('tx-buy-sale-usad');
+          dismissWalletPopupToast('tx-buy-sale-usad');
           toast.error('No USAD tokens found.');
           return null;
         }
 
         const usadRecord = (usadRecords as Record<string, unknown>[]).find((r) => !r.spent);
         if (!usadRecord) {
-          toast.dismiss('tx-buy-sale-usad');
+          dismissWalletPopupToast('tx-buy-sale-usad');
           toast.error('No unspent USAD tokens available.');
           return null;
         }
 
         const usadInput = getRecordInput({ _raw: usadRecord } as { _plaintext?: string; _raw?: Record<string, unknown> });
         if (!usadInput) {
-          toast.dismiss('tx-buy-sale-usad');
+          dismissWalletPopupToast('tx-buy-sale-usad');
           toast.error('USAD record not available.');
           return null;
         }
@@ -1646,7 +1665,7 @@ export function useOnyxWallet() {
         const proof = await generateFreezeListProof(walletAddress || '', freezeListCount);
         const proofStr = `[${proof}, ${proof}]`;
 
-        toast.loading('Purchasing with USAD...', { id: 'tx-buy-sale-usad' });
+        showWalletPopupToast('tx-buy-sale-usad', 'Approve USAD purchase in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.payProgramId,
@@ -1656,7 +1675,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-buy-sale-usad');
+        dismissWalletPopupToast('tx-buy-sale-usad');
 
         if (response?.transactionId) {
           toast.success('USAD purchase submitted!');
@@ -1665,7 +1684,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-buy-sale-usad');
+        dismissWalletPopupToast('tx-buy-sale-usad');
         console.error('[OnyxWallet] Buy sale USAD error:', err);
         toast.error(err instanceof Error ? err.message : 'USAD purchase failed');
         return null;
@@ -1692,7 +1711,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Completing USAD sale...', { id: 'tx-complete-sale-usad' });
+        showWalletPopupToast('tx-complete-sale-usad', 'Approve USAD sale completion in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -1702,7 +1721,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-complete-sale-usad');
+        dismissWalletPopupToast('tx-complete-sale-usad');
 
         if (response?.transactionId) {
           toast.success('USAD sale completed — artifact delivered!');
@@ -1711,7 +1730,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-complete-sale-usad');
+        dismissWalletPopupToast('tx-complete-sale-usad');
         console.error('[OnyxWallet] Complete sale USAD error:', err);
         toast.error(err instanceof Error ? err.message : 'USAD sale completion failed');
         return null;
@@ -1737,7 +1756,7 @@ export function useOnyxWallet() {
       }
 
       try {
-        toast.loading('Refunding USAD purchase...', { id: 'tx-refund-sale-usad' });
+        showWalletPopupToast('tx-refund-sale-usad', 'Approve USAD refund in your wallet popup...');
 
         const response = await executor.executeTransaction({
           program: ALEO_CONFIG.programId,
@@ -1747,7 +1766,7 @@ export function useOnyxWallet() {
           privateFee: false,
         });
 
-        toast.dismiss('tx-refund-sale-usad');
+        dismissWalletPopupToast('tx-refund-sale-usad');
 
         if (response?.transactionId) {
           toast.success('USAD purchase refund processed!');
@@ -1756,7 +1775,7 @@ export function useOnyxWallet() {
 
         throw new Error('No transaction ID returned');
       } catch (err) {
-        toast.dismiss('tx-refund-sale-usad');
+        dismissWalletPopupToast('tx-refund-sale-usad');
         console.error('[OnyxWallet] Refund sale USAD error:', err);
         toast.error(err instanceof Error ? err.message : 'USAD refund failed');
         return null;
@@ -2009,6 +2028,7 @@ export function useOnyxWallet() {
     connected: wallet.connected,
     connecting: wallet.connecting,
     loading,
+    walletBusy,
     authenticate,
     // Brand registration (v3 — any user can self-register)
     executeRegisterBrand,
