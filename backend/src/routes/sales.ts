@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import crypto from 'crypto';
 import { DatabaseService } from '../services/db';
 import { getMappingValue } from '../services/provableApi';
+import { computeSaleId } from '../services/bhp256';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import {
   createSaleSchema,
@@ -29,7 +30,7 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response): 
       return;
     }
 
-    const { listingId, saleId, onChainSaleId, createSaleTxId } = parsed.data;
+    const { listingId, saleId, onChainSaleId, createSaleTxId, saleSalt } = parsed.data;
     const sellerAddress = req.userAddress!;
     const sellerHash = crypto.createHash('sha256').update(sellerAddress).digest('hex');
     console.log('[Sales] Create request:', { listingId, saleId, onChainSaleId: onChainSaleId?.slice(0, 20), sellerAddress: sellerAddress.slice(0, 20) });
@@ -74,6 +75,7 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response): 
       currency: listing.currency,
       status: 'pending_payment',
       createSaleTxId,
+      saleSalt,
       createdAt: now,
       updatedAt: now,
     };
@@ -464,6 +466,23 @@ router.get('/by-listing/:listingId', async (req, res): Promise<void> => {
       return;
     }
 
+    // Auto-resolve pending sales: if onChainSaleId starts with pending_ and we have
+    // the saleSalt, compute the real sale_id using BHP256
+    if (sale.onChainSaleId.startsWith('pending_') && sale.saleSalt && sale.sellerAddress) {
+      try {
+        const resolved = await computeSaleId(sale.tagHash, sale.saleSalt, sale.sellerAddress);
+        if (resolved) {
+          const cleanId = resolved.replace(/field$/, '');
+          sale.onChainSaleId = cleanId;
+          sale.updatedAt = new Date().toISOString();
+          db.setSale(sale);
+          console.log('[Sales] Auto-resolved pending sale_id for listing', listingId, ':', cleanId.slice(0, 20) + '...');
+        }
+      } catch (err) {
+        console.warn('[Sales] Auto-resolve failed for listing', listingId, ':', err);
+      }
+    }
+
     res.json({
       found: true,
       sale: {
@@ -474,11 +493,43 @@ router.get('/by-listing/:listingId', async (req, res): Promise<void> => {
         price: sale.price,
         currency: sale.currency,
         status: sale.status,
+        createSaleTxId: sale.createSaleTxId,
         createdAt: sale.createdAt,
       },
     });
   } catch (err) {
     console.error('[Sales] By-listing lookup error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================================
+// POST /sales/compute-sale-id — Pre-compute on-chain sale_id
+// Called BEFORE create_sale transaction to get the exact sale_id
+// ============================================================
+router.post('/compute-sale-id', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { tagHash, saleSalt } = req.body;
+    const sellerAddress = req.userAddress!;
+
+    if (!tagHash || !saleSalt) {
+      res.status(400).json({ error: 'tagHash and saleSalt are required' });
+      return;
+    }
+
+    const saleId = await computeSaleId(tagHash, saleSalt, sellerAddress);
+    if (!saleId) {
+      res.status(500).json({ error: 'Failed to compute sale_id' });
+      return;
+    }
+
+    // Strip 'field' suffix for clean storage
+    const cleanSaleId = saleId.replace(/field$/, '');
+
+    console.log('[Sales] Computed sale_id for tag', tagHash, ':', cleanSaleId.slice(0, 20) + '...');
+    res.json({ success: true, onChainSaleId: cleanSaleId });
+  } catch (err) {
+    console.error('[Sales] Compute sale_id error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

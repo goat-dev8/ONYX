@@ -489,6 +489,22 @@ export const Vault: FC = () => {
       const saleSalt = `${Date.now()}`;
       const currencyCode = listingCurrency === 'aleo' ? 0 : listingCurrency === 'usdcx' ? 1 : 2;
       try {
+        // Pre-compute on-chain sale_id using backend BHP256
+        // This matches: sale_id = BHP256(tag_hash + sale_salt + BHP256(seller_address))
+        let precomputedSaleId: string | null = null;
+        try {
+          const computed = await api.computeSaleId({
+            tagHash: selectedArtifact.tagHash,
+            saleSalt,
+          });
+          if (computed.onChainSaleId) {
+            precomputedSaleId = computed.onChainSaleId;
+            console.log('[Vault] Pre-computed on-chain sale_id:', precomputedSaleId.slice(0, 20) + '...');
+          }
+        } catch (err) {
+          console.warn('[Vault] Sale ID pre-computation failed, will use pending_ fallback:', err);
+        }
+
         // Find the artifact record from wallet
         const artifactRecord = {
           tagHash: selectedArtifact.tagHash,
@@ -504,17 +520,21 @@ export const Vault: FC = () => {
         );
 
         if (saleResult) {
-          // 3. Register sale in backend
-          // Note: we don't know the on-chain sale_id yet (it's computed on-chain via BHP256).
-          // Store a placeholder — auto-registration will update it when SaleRecord appears in wallet.
+          // 3. Register sale in backend with pre-computed sale_id (or pending_ fallback)
+          const onChainSaleId = precomputedSaleId || `pending_${saleResult.txId}`;
           try {
             await api.createSale({
               listingId: listingResult.id,
               saleId: saleResult.saleId,
-              onChainSaleId: `pending_${saleResult.txId}`,
+              onChainSaleId,
               createSaleTxId: saleResult.txId,
+              saleSalt,
             });
-            toast.success('Sale created on-chain! It will become buyable once the transaction confirms.');
+            if (precomputedSaleId) {
+              toast.success('Sale created! Buyers can purchase once the transaction confirms.');
+            } else {
+              toast.success('Sale created on-chain! It will become buyable once the transaction confirms.');
+            }
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             console.error('[Vault] Backend sale registration failed:', errMsg);

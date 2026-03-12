@@ -248,7 +248,7 @@ export const api = {
 
   // ========== Atomic Sales (v5) ==========
 
-  async createSale(data: { listingId: string; saleId: string; onChainSaleId: string; createSaleTxId: string }) {
+  async createSale(data: { listingId: string; saleId: string; onChainSaleId: string; createSaleTxId: string; saleSalt?: string }) {
     const response = await fetch(`${API_BASE_URL}/sales/create`, {
       method: 'POST',
       headers: authHeaders(),
@@ -282,6 +282,15 @@ export const api = {
       body: JSON.stringify(data),
     });
     return handleResponse<{ success: boolean; sale: Sale }>(response);
+  },
+
+  async computeSaleId(data: { tagHash: string; saleSalt: string }) {
+    const response = await fetch(`${API_BASE_URL}/sales/compute-sale-id`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ success: boolean; onChainSaleId: string }>(response);
   },
 
   async updateSaleOnChainId(data: { listingId: string; onChainSaleId: string }) {
@@ -324,6 +333,6 @@ export const api = {
 
   async getSaleByListing(listingId: string) {
     const response = await fetch(`${API_BASE_URL}/sales/by-listing/${encodeURIComponent(listingId)}`);
-    return handleResponse<{ found: boolean; sale: { saleId: string; onChainSaleId: string; listingId: string; sellerAddress: string; price: number; currency: 'aleo' | 'usdcx'; status: string; createdAt: string } | null }>(response);
+    return handleResponse<{ found: boolean; sale: { saleId: string; onChainSaleId: string; listingId: string; sellerAddress: string; price: number; currency: 'aleo' | 'usdcx'; status: string; createSaleTxId?: string; createdAt: string } | null }>(response);
   },
 };

@@ -69,6 +69,7 @@ export interface Sale {
   currency: 'aleo' | 'usdcx' | 'usad';     // Payment type
   status: SaleStatus;
   createSaleTxId: string;          // TX from create_sale
+  saleSalt?: string;               // Salt used in create_sale (for pending resolution)
   buySaleTxId?: string;            // TX from buy_sale_escrow/usdcx
   completeSaleTxId?: string;       // TX from complete_sale_escrow/usdcx
   cancelTxId?: string;             // TX from cancel_sale
