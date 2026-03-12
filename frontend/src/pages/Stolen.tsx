@@ -13,7 +13,7 @@ import { Button, Card, Input, StatusBadge } from '../components/ui/Components';
 import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
 import { api } from '../lib/api';
-import { formatAddress, checkStolenStatus } from '../lib/aleo';
+import { formatAddress, checkStolenStatus, getLocalStolenTags } from '../lib/aleo';
 import { TransactionIdDisplay } from '../components/ui/PendingTx';
 
 interface WalletArtifact {
@@ -131,6 +131,24 @@ export const Stolen: FC = () => {
 
       setWalletArtifacts(artifacts);
       setBountyPledges(pledges);
+
+      // Also add locally-stored stolen tags as phantom stolen items
+      // (the original artifact was consumed on-chain when reported stolen)
+      const localTags = getLocalStolenTags();
+      const existingTags = new Set([...artifacts.map(a => a.tagHash), ...pledges.map(p => p.tagHash)]);
+      for (const [tagHash] of Object.entries(localTags)) {
+        if (!existingTags.has(tagHash)) {
+          artifacts.push({
+            tagHash,
+            modelId: '',
+            brand: '',
+            stolen: true,
+            _fromWallet: false,
+          });
+        }
+      }
+      // Re-set with local entries included
+      setWalletArtifacts([...artifacts]);
     } catch (err) {
       console.error('[Stolen] Load wallet records error:', err);
       toast.error('Failed to load wallet records');
@@ -248,7 +266,7 @@ export const Stolen: FC = () => {
             Sign a message with your wallet to verify ownership
           </p>
           <Button onClick={handleAuth} loading={loading} size="lg">
-            Sign to Authenticate
+            {loading ? 'Check Your Wallet Popup...' : 'Sign to Authenticate'}
           </Button>
         </motion.div>
       </div>
@@ -365,7 +383,7 @@ export const Stolen: FC = () => {
           )}
 
           {/* ── BOUNTY MANAGEMENT ── */}
-          {stolenItems.length > 0 && (
+          {(stolenItems.length > 0 || bountyPledges.length > 0) && (
             <Card className="border-amber-500/15">
               <div className="mb-4 flex items-center gap-3">
                 <div className="rounded-lg bg-amber-500/15 p-1.5">

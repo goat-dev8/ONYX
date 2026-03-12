@@ -209,8 +209,16 @@ export const Vault: FC = () => {
           }
         }
         
-        // Show artifacts immediately — check stolen status in background to avoid blocking UI
-        setArtifacts(walletArtifacts);
+        // Show artifacts immediately — preserve existing stolen status if we already know it
+        const existingArtifacts = useUserStore.getState().artifacts;
+        const existingStolenMap = new Map(
+          existingArtifacts.filter(a => a.stolen && a.tagHash).map(a => [a.tagHash, true])
+        );
+        const walletArtifactsWithKnownStolen = walletArtifacts.map(a => ({
+          ...a,
+          stolen: existingStolenMap.get(a.tagHash) || false,
+        }));
+        setArtifacts(walletArtifactsWithKnownStolen);
         
         // Check stolen status asynchronously — update in-place when results come back
         if (walletArtifacts.some(a => !!a.tagHash)) {
