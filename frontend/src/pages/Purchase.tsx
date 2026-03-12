@@ -7,6 +7,8 @@ import { useOnyxWallet } from '../hooks/useOnyxWallet';
 import { useUserStore } from '../stores/userStore';
 import { usePendingTxStore } from '../stores/pendingTxStore';
 import { api } from '../lib/api';
+import { ALEO_CONFIG } from '../lib/aleo';
+import { checkSaleActiveOnChain } from '../lib/commitment';
 import type { Listing } from '../lib/types';
 
 type PurchaseStep = 'preview' | 'paying' | 'paid' | 'completed' | 'error';
@@ -31,6 +33,7 @@ export const Purchase: FC = () => {
   const [loading, setLoading] = useState(true);
   const [noSale, setNoSale] = useState(false);
   const [salePending, setSalePending] = useState(false);
+  const [saleConfirmedOnChain, setSaleConfirmedOnChain] = useState(false);
   const [txId, setTxId] = useState<string | null>(null);
   const [onChainTxId, setOnChainTxId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +64,18 @@ export const Purchase: FC = () => {
                 setSalePending(true);
               } else {
                 setOnChainSaleId(saleLookup.sale.onChainSaleId);
+                // Verify the sale is actually active on-chain (create_sale tx may not have finalized)
+                const isActive = await checkSaleActiveOnChain(
+                  saleLookup.sale.onChainSaleId,
+                  ALEO_CONFIG.programId,
+                  ALEO_CONFIG.provableApiBase
+                );
+                if (isActive) {
+                  setSaleConfirmedOnChain(true);
+                } else {
+                  // Sale ID is known but not yet active on-chain
+                  setSalePending(true);
+                }
               }
             }
           } else {
@@ -91,27 +106,42 @@ export const Purchase: FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // Auto-refresh when sale is pending — poll every 5s until onChainSaleId is set
+  // Auto-refresh when sale is pending — poll every 5s until sale is active on-chain
   useEffect(() => {
     if (!salePending) return;
-    // Poll immediately on first run, then every 5s
     let cancelled = false;
     const doCheck = async () => {
       if (cancelled) return;
       try {
-        const saleLookup = await api.getSaleByListing(listingId);
-        if (saleLookup.found && saleLookup.sale?.onChainSaleId && !saleLookup.sale.onChainSaleId.startsWith('pending_')) {
-          setOnChainSaleId(saleLookup.sale.onChainSaleId);
-          if (saleLookup.sale.sellerAddress) setSellerAddress(saleLookup.sale.sellerAddress);
-          setSalePending(false);
-          toast.success('Sale is ready — you can now purchase!');
+        // First resolve the onChainSaleId if still pending_
+        let currentSaleId = onChainSaleId;
+        if (!currentSaleId) {
+          const saleLookup = await api.getSaleByListing(listingId);
+          if (saleLookup.found && saleLookup.sale?.onChainSaleId && !saleLookup.sale.onChainSaleId.startsWith('pending_')) {
+            currentSaleId = saleLookup.sale.onChainSaleId;
+            setOnChainSaleId(currentSaleId);
+            if (saleLookup.sale.sellerAddress) setSellerAddress(saleLookup.sale.sellerAddress);
+          }
+        }
+        // Then verify the sale is active on-chain
+        if (currentSaleId) {
+          const isActive = await checkSaleActiveOnChain(
+            currentSaleId,
+            ALEO_CONFIG.programId,
+            ALEO_CONFIG.provableApiBase
+          );
+          if (isActive) {
+            setSaleConfirmedOnChain(true);
+            setSalePending(false);
+            toast.success('Sale confirmed on-chain — you can now purchase!');
+          }
         }
       } catch { /* retry silently */ }
     };
-    doCheck(); // immediate first check
+    doCheck();
     const interval = setInterval(doCheck, 5000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [salePending, listingId]);
+  }, [salePending, listingId, onChainSaleId]);
 
   // Resolve real on-chain txId from pending TX store (Shield wallet returns shield_... IDs)
   useEffect(() => {
@@ -426,7 +456,7 @@ export const Purchase: FC = () => {
                   Check Now
                 </button>
               </div>
-            ) : !saleId || !onChainSaleId || !sellerAddress ? (
+            ) : !saleId || !onChainSaleId || !sellerAddress || !saleConfirmedOnChain ? (
               <p className="text-sm text-amber-400/70">Invalid sale link. Please go back to the marketplace.</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

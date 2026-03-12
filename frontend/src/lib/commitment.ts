@@ -237,3 +237,28 @@ export async function checkTagExistsByCommitment(
     return false;
   }
 }
+
+/**
+ * Check if a sale is active on-chain by querying the sale_active mapping.
+ * sale_commitment = BHP256::hash_to_field(sale_id)
+ */
+export async function checkSaleActiveOnChain(
+  saleId: string,
+  programId: string,
+  apiBase: string
+): Promise<boolean> {
+  try {
+    const saleCommitment = await computeBHP256Commitment(saleId);
+    if (!saleCommitment) return false;
+
+    const url = `${apiBase}/program/${programId}/mapping/sale_active/${saleCommitment}`;
+    const response = await fetch(url);
+
+    if (!response.ok) return false;
+
+    const value = await response.text();
+    return value.includes('true');
+  } catch {
+    return false;
+  }
+}
